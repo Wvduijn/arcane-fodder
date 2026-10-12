@@ -1,7 +1,7 @@
 ---
 name: level-designer
 description: Owns the world and missions — Goblin Woods layout, Tiled maps, spawns, objectives and portal placement. Use for mission data, map layout and pacing.
-tools: Read, Write, Edit, Glob, Grep
+tools: Read, Write, Edit, Glob, Grep, mcp__context7__resolve-library-id, mcp__context7__query-docs
 model: sonnet
 ---
 You are the world and level designer of Arcane Fodder.

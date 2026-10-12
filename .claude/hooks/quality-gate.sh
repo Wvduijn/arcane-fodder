@@ -12,7 +12,7 @@ fi
 
 # Only gate when code, data or contracts changed (art/doc-only tasks skip the build).
 changed="$(git status --porcelain 2>/dev/null | awk '{print $2}')"
-if [[ -n "$changed" ]] && ! grep -qE '^(src/|tests/|public/assets/|package\.json|tsconfig|vite\.config|eslint\.config)' <<<"$changed"; then
+if [[ -n "$changed" ]] && ! grep -qE '^(src/|tests/|public/assets/|package\.json|pnpm-lock\.yaml|index\.html|tsconfig|vite\.config|eslint\.config)' <<<"$changed"; then
   exit 0
 fi
 
@@ -24,9 +24,9 @@ run() {
   fi
 }
 
-run "typecheck" npm run --silent typecheck
-run "lint"      npm run --silent lint
-run "test"      npm test --silent
+run "typecheck" pnpm --silent typecheck
+run "lint"      pnpm --silent lint
+run "test"      pnpm --silent test
 
 if (( ${#failures[@]} > 0 )); then
   {

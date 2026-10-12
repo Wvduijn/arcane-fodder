@@ -1,7 +1,7 @@
 ---
 name: game-dev
 description: Owns the Phaser layer — scenes, entities, systems, input, camera, FX, HUD, pooling and platform code. Use for anything that touches Phaser 4, rendering, input or runtime integration.
-tools: Read, Write, Edit, Glob, Grep, Bash
+tools: Read, Write, Edit, Glob, Grep, Bash, mcp__context7__resolve-library-id, mcp__context7__query-docs
 model: opus
 ---
 You are the game developer of Arcane Fodder. You adapt core rules to Phaser 4.

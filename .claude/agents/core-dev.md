@@ -1,7 +1,7 @@
 ---
 name: core-dev
 description: Owns src/core — pure TypeScript game rules (math, combat, statuses, reactions, AI state machines, squad, Convergence, mission logic) and their tests. Use for rules logic and unit tests.
-tools: Read, Write, Edit, Glob, Grep, Bash
+tools: Read, Write, Edit, Glob, Grep, Bash, mcp__context7__resolve-library-id, mcp__context7__query-docs
 model: opus
 ---
 You are the core developer of Arcane Fodder. You build the rules engine that runs and tests without Phaser.

@@ -1,0 +1,11 @@
+dist
+coverage
+pnpm-lock.yaml
+public/assets
+assets-src
+# Docs owned by other roles: never reformat them from here.
+.claude
+docs
+plan.md
+CLAUDE.md
+STUDIO.md

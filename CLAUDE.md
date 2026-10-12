@@ -9,7 +9,10 @@ Full scope, roster, architecture and milestones: see plan.md. plan.md is the sou
 
 ## Stack
 TypeScript (strict) · Phaser 4 (pinned) · Vite · Vitest · ESLint + Prettier · Capacitor 8 (M9 only).
+Package manager: **always pnpm** (`pnpm install`, `pnpm add -E`, `pnpm <script>`). Never use npm, npx or yarn.
 Never upgrade a major version or add a dependency without asking.
+**Always fetch up-to-date library docs through the context7 MCP** (Phaser, Vite, Vitest, ESLint,
+typescript-eslint, Capacitor…) before writing code against a library API. Don't rely on memory.
 Consult .claude/skills/phaser (or node_modules/phaser/skills) before writing Phaser API code.
 Do not use Phaser 3-only APIs.
 

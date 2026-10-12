@@ -344,7 +344,7 @@ Create folders **when a milestone needs them**, not all up front.
 Configure ESLint `no-restricted-imports` so that:
 
 - `src/core/**` cannot import `phaser`, `src/game/**` or `src/platform/**`
-- `src/data/**` can import only from `src/core/**`
+- `src/data/**` can import only **types** from `src/core/**` (`import type`), plus other `src/data/**` files (ADR 0003)
 
 Configure path aliases (`@core/*`, `@data/*`, `@game/*`, `@platform/*`) in both `tsconfig.json` and `vite.config.ts`.
 
@@ -479,7 +479,7 @@ Procedural levels · more than one mission · recruitment or meta-progression ·
 
 ## 9. Milestones
 
-Each milestone ends with: `npm run typecheck && npm run lint && npm test && npm run build` passing, a manual play test, and a git commit tagged `m<N>`.
+Each milestone ends with: `pnpm typecheck && pnpm lint && pnpm test && pnpm build` passing, a manual play test, and a git commit tagged `m<N>`.
 
 Effort assumes 8–12 hours a week with Claude assisting. The total estimate for a playable MVP is roughly **10–16 weeks**.
 

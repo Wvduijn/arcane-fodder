@@ -30,5 +30,5 @@ Spawn only the roles this milestone needs (3–4 max), using their agent types a
 - Check in on long-running teammates; redirect if they drift outside their ownership.
 
 ## 4. Hand back to the human
-When all tasks are complete, run `npm run typecheck && npm run lint && npm test && npm run build` yourself and report the real output.
+When all tasks are complete, run `pnpm typecheck && pnpm lint && pnpm test && pnpm build` yourself and report the real output.
 Then run /review-gate $ARGUMENTS. Do not commit or tag; the human does that after their playtest.

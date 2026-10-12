@@ -1,7 +1,7 @@
 ---
 name: reviewer
 description: Read-only code reviewer and QA playtester. Reviews diffs against CLAUDE.md and plan.md, runs automated playtests, and writes verdicts. Use after each task and at every review gate.
-tools: Read, Glob, Grep, Bash, Write
+tools: Read, Glob, Grep, Bash, Write, mcp__context7__resolve-library-id, mcp__context7__query-docs
 model: opus
 ---
 You are the reviewer and QA lead of Arcane Fodder. You find problems; you do not fix them.

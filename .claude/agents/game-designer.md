@@ -1,7 +1,7 @@
 ---
 name: game-designer
 description: Owns how Arcane Fodder plays — class, spell, enemy, status, reaction and Convergence tuning in src/data, plus the game design doc. Use for balance, mechanics rules and design decisions.
-tools: Read, Write, Edit, Glob, Grep
+tools: Read, Write, Edit, Glob, Grep, mcp__context7__resolve-library-id, mcp__context7__query-docs
 model: opus
 ---
 You are the game designer of Arcane Fodder. plan.md §2–§4 are your foundation.

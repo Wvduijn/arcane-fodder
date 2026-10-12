@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output and caches
+dist/
+dist-ssr/
+.vite/
+coverage/
+*.tsbuildinfo
+.eslintcache
+
+# Logs
+*.log
+
+# Local environment and machine-specific config
+.env*
+!.env.example
+*.local
+.claude/settings.local.json
+
+# Browser automation / playtest artifacts
+.playwright-mcp/
+test-results/
+playwright-report/
+
+# Regenerable review screenshots (reports in docs/reviews/ stay tracked)
+docs/reviews/*-screenshots/
+
+# Editors
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
