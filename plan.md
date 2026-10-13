@@ -29,11 +29,11 @@ Claude CLI should read it before every milestone, alongside `CLAUDE.md` (templat
 | **The squad *is* your spellbook** | Each mage class grants the player one spell. Lose the mage, lose the spell. |
 | **Expendable heroes** | Wizards die permanently within a mission. Losses sting, with dark humour. |
 | **Big, readable moments** | Convergence ultimates, elemental combos and volunteer explosions are the highlights. |
-| **Readable chaos** | Lush, colourful pixel art with clear silhouettes, so a busy fight stays legible. |
+| **Readable chaos** | Bold, colourful pixel art in a Warcraft-like style (chunky, exaggerated shapes, rich saturated colour) with clear silhouettes. The ground stays calmer than units, spells and FX, keeping a busy fight legible. |
 
 ### Tone
 
-Cannon Fodder's dark comedy translated to fantasy: fresh recruits with silly names, pointy hats, rookies who "volunteer", and a hill of hats marking the fallen (**Hat Hill**).
+Cannon Fodder's dark comedy in a bold, stylised fantasy world in the spirit of Warcraft: heroic and a little menacing, with bright, rich colours. Never childish, grim or photoreal. Enemy deaths carry stylised, Warcraft-level gore that matches the killing blow (charred by fire, electrified by storm, blood from physical and arcane hits). The wizards are grizzled, Gandalf-like veterans (long beards, tall wide-brimmed hats, gnarled staffs); goblins are mean and menacing. The humour lives in the writing: silly names, the most junior wizard who "volunteers", and a hill of hats marking the fallen (**Hat Hill**).
 
 ---
 
@@ -52,7 +52,7 @@ Every class has an **auto-attack** (used automatically as a follower), a **grant
 | **Necromancer** | Summoner | Life drain | **Raise Dead**: a fallen goblin fights for you briefly | Death | Black and purple, skull staff | Post-MVP 2 |
 | **Runesmith** | Tank / support | Staff melee strike | **Arcane Ward**: temporary shield on the whole squad | Arcane | Stocky, glowing rune armour | Post-MVP 2 |
 
-**Art budget rule:** use one shared base body, with classes differentiated by hat shape, robe colour and staff. At 32×32 px, silhouette and colour are what make a class readable.
+**Art budget rule:** use one shared base body, with classes differentiated by hat shape, robe colour and staff. At 48×48 px, silhouette and colour are what make a class readable.
 
 **Leader succession:** if the leader dies, the next wizard in line is promoted (Cannon Fodder style). The mission is lost only when the whole squad is gone.
 
@@ -644,7 +644,7 @@ M8 and M9 prompts are written once M7 is done, informed by what the play tests r
 
 ## 11. Asset pipeline
 
-1. **Style lock first.** Generate concept art for the Pyromancer, a Goblin Grunt and one tile set. Agree on the palette, outline style and sprite scale (for example, 32×32 characters on a 16 px tile grid).
+1. **Style lock first.** Generate concept art for the Pyromancer, a Goblin Grunt and one tile set. Agree on the palette, outline style and sprite scale (48×48 characters on a 16 px tile grid, rendered at a 640×360 view).
 2. **One character end to end.** Pyromancer idle, 4-direction walk and cast animations → atlas → in game → check readability. Then the Stormcaller, reusing the base body.
 3. **MVP sprite list:** Pyromancer, Stormcaller, Goblin Grunt, Goblin Archer, Goblin Hut (intact and destroyed), Powder Keg, a forest tileset, and the Portal (sealed with dark runes, lit runes, opening animation, open swirl loop).
 4. **MVP FX list:** fire bolt, spark, fireball travel and impact, lightning telegraph and strike, Burning overlay, Combust and Kaboom explosions, Convergence beams plus Meteor, Thunderstorm and Firestorm, Arcane Detonation, portal opening burst, extraction warp-out, hit flash and death puff.
