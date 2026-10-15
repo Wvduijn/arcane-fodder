@@ -285,6 +285,7 @@ arcane-fodder/
 │   │   └── registry.ts            # Scene registration
 │   ├── core/                      # ⚠ NO Phaser imports
 │   │   ├── math/                  # Vec2 helpers, angles, clamp, lerp
+│   │   ├── input/                 # ActionBuffer: edge-triggered action presses
 │   │   ├── combat/                # damage, area of effect, Cooldown, statuses, reactions
 │   │   ├── targeting/             # selectTarget() strategies
 │   │   ├── ai/                    # StateMachine<TState, TContext>

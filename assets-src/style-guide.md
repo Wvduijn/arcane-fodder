@@ -3,6 +3,7 @@
 > **Status: v3.1 FINAL (2026-10-13). Direction: stylised Warcraft-like, bright and heroic, 48 × 48.**
 > v3.1: style lock approved (locked references in §15); enemy deaths get stylised elemental gore
 > (§7.1, blood family in §4); wizard deaths stay non-gory.
+> 2026-10-14: Stormcaller and Goblin Archer references locked (§15).
 > Owner: art-director. Replaces v2.0 (too dark) and v1.1 (too childish). Rejected concept sets:
 > assets-src/concept/style-lock/_rejected-v1/ and the v2 raws in assets-src/raw/<asset>/v2/.
 > Sizes and radii are agreed with game-designer (readability.md rev 2, mvp.md) and level-designer
@@ -498,10 +499,13 @@ Every new prompt for these assets attaches the matching locked reference image(s
 |---|---|---|
 | Wizard base body (Pyromancer, and Stormcaller by reuse) | `assets-src/concept/style-lock/pyromancer/v2.png` ("Stout": braided beard with iron rings, bracers, satchel, scowl, split-wood flame staff) | Cleanup: brass buckles must not map to `gold` |
 | Goblin (Grunt, and the Archer's body) | `assets-src/concept/style-lock/goblin-grunt/v3.png` ("Axe": black hair tuft, riveted leather vest, two-handed axe, bowed legs) | Mohawk accepted; ears stay the goblin cue |
+| Stormcaller (locked 2026-10-14) | `assets-src/concept/style-lock/stormcaller/v1.png` ("Tall Bolt": Stout body, very tall lightning-bolt zigzag hat, two-pronged fork staff with a `bolt` orb and `cyan` sparks, `bolt` trim) | Cleanup: brass buckles (from the Stout body) must not snap to `gold`; map them to `tan`/`leather`. Hat must still measure 16 px at 48 × 48 (47 px total, §6). Orb and trim snap to `bolt`, never `gold`. |
+| Goblin Archer (locked 2026-10-14) | `assets-src/concept/style-lock/goblin-archer/v2.png` ("Mantle": Axe goblin body, ragged tan hooded short cape, ears through holes in the hood, long vertical bow, hip quiver) | Cleanup: the ears come out through **holes in the hood** and must stay fully visible and outlined in every facing (the hood never covers the ear silhouette; §7 goblin cue). Hood and mantle snap to `tan`/`leather`, never floor green. Brass/metal bits never snap to `gold`. |
 | Forest tiles | **All three sheets locked as one set:** `assets-src/concept/style-lock/forest-tiles/v1.png` (props and grass), `v2.png` (road, tree wall, river, bridge), `v3.png` (goblin camp) | tech-artist: at palette snap, **warm v2's blue-green grass slightly toward v1's olive** so the three sheets match. Still cooler and calmer than goblin lime. v3 bushes snap to the moss family. |
 
 Non-selected v3 variations (Pyromancer v1, v3; Grunt v1, v2) stay in style-lock/ as alternates,
-not references.
+not references. Same for the 2026-10-14 concept pass: Stormcaller v2 "Crook", v3 "Stepped" and
+Goblin Archer v1 "Hood", v3 "Hide Hood" are alternates, not references.
 
 ---
 
