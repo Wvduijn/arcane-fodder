@@ -47,7 +47,7 @@ where everything competes, and green goblins on a green forest floor.
    | Red / orange / yellow-hot | Fire | Pyromancer robe and staff, fire bolt, Fireball, Burning, Combust, Meteor, Kaboom |
    | Cyan / electric white | Storm | Stormcaller accents and staff, sparks, Lightning, Thunderstorm bolts |
    | Magenta-violet | Arcane | Convergence beam core, Arcane Detonation, portal swirl |
-   | Gold (#f2c12e, style guide) | Progress / "me" | Lit portal runes, leader marker, extraction ring, HUD objective count |
+   | Gold (style guide `gold` #f2b42a, outlined in `ink` #1a1020; the style guide is authoritative) | Progress / "me" | Lit portal runes, leader marker, extraction ring, HUD objective count |
    | Goblin green skin; earthy gear | Goblins | Grunt, Archer, Hut |
    | **Dark crimson / maroon**, low value, matte | Blood (enemy deaths, §4a) | Blood burst, blood splat decal |
 
@@ -105,6 +105,8 @@ Shared features (beard, cloak, posture) belong to the base body and must not blu
   plus the motion carry it. Slow pulse (≥ 800 ms period), so it reads by motion and doesn't depend on
   hue.
 - Followers have no marker. Don't put the marker above the head; hats live there.
+- The marker always draws on the ground layer, below every character. Followers partly hiding it
+  (e.g. when walking north) is accepted; the marker never draws over a follower (CD playtest, M3).
 - On succession, the marker moves to the new leader with a short pop (≤ 200 ms).
 
 **Wizard state cues**

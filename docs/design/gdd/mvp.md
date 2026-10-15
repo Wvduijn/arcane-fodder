@@ -88,6 +88,12 @@ player for control, and they never bunch up or jitter.
 | `trail.separationRadiusPx` | 20 (= 2 × wizard body radius) |
 | `trail.catchUpDistancePx` | 48 |
 | `trail.catchUpMultiplier` | 1.3 |
+| `trail.arriveRadiusPx` | 16. Inside this distance a follower slows linearly to its slot, so it settles instead of overshooting. |
+| `trail.stopRadiusPx` | 3. Within this of a slot at rest, a follower stops dead: no creep, no jitter when the leader stands still. |
+| `trail.separationMaxSpeedFactor` | 0.5 (× `squad.moveSpeed`). Caps the separation push so wizards ease apart rather than pinball. |
+
+The last three keys were approved by the CD on 2026-10-15 (M3 Q5) as starting values, tuned at the
+M3 playtest. Data: `src/data/trail.ts` (`TRAIL`, type `TrailTuning`).
 
 Full-squad trail length = 3 × 26 = **78 px** (about 5 tiles). The portal radius (§13) depends on this.
 Spacing 26 is greater than the 20 px body diameter and the about 20 px wizard sprite width (style guide
@@ -118,6 +124,8 @@ slot in open ground.
 | Key | Value |
 |---|---|
 | `succession.cameraEaseMs` | 300 |
+
+In code the key is `successionEaseMs` in `CameraTuning` (`src/data/camera.ts`, `CAMERA.successionEaseMs`).
 
 **Edge cases**
 - The leader and index 1 die on the same frame: promote the lowest surviving index.
@@ -407,7 +415,7 @@ a body and maybe a spell for a big blast.
   `volunteer.fuseMs` elapsed, or dying (they blow up where they fall).
 - Arcane Detonation: `volunteer.damage` (arcane) to enemy units and huts in `volunteer.radiusPx`.
   Triggers kegs (Q6). No damage to wizards (Q7).
-- The volunteer dies. Hat Hill entry: cause `volunteered`, epitaph *"Volunteered."*
+- The volunteer dies. Hat Hill entry: cause `volunteer`, epitaph *"Volunteered."*
 
 | Key | Value |
 |---|---|
@@ -690,7 +698,7 @@ left behind. A play test: walk the full squad straight in, and all 4 are saved.
 
 **Defeat.** Triggers when the squad has 0 members **and** no volunteer is mid-sprint. In practice:
 when the last wizard dies. The leader can't volunteer, so the last wizard always dies in combat.
-`mission:ended {defeat}`. Everyone is recorded as cause `combat` (or `volunteered` for earlier
+`mission:ended {defeat}`. Everyone is recorded as cause `combat` (or `volunteer` for earlier
 volunteers).
 
 **Results screen** (victory and defeat share it)
@@ -705,6 +713,17 @@ volunteers).
 **Restart.** The "Again" action (Enter, R or tap) restarts the mission instantly without a page
 reload, with **fresh recruits** (new seeded names: seed = base seed + attempt number). The same
 restart is available from the pause menu. The restart leak check is in plan §8 DoD.
+
+**Recruit names** (M3, CD Q3). Data: `src/data/names.ts` (`RECRUIT_NAMES`, 39 first names × 38
+epithets), combined as "<first> the <epithet>", unique within a squad. Dev arena base seed:
+`DEV_SQUAD.nameSeed` in `src/data/devArena.ts`.
+- *Intent:* each wizard reads as a grizzled veteran with a faintly doomed nickname ("Lazarus the
+  Late", "Grimbald the Damp"), so losing one stings and is funny. Several epithets echo the game's
+  own verbs (Next, Volunteered, Hatless, Once Fireproof). Never childish, no real people, no slurs.
+- *Budget:* first names ≤ 9 characters, epithets ≤ 14, so every full name is ≤ 28 and fits the results
+  screen. Longest: "Archibald the Once Fireproof" (28).
+- *Verify:* restart 3 times; every squad has 4 distinct names, none truncated on the results screen,
+  and the same seed and attempt always give the same names.
 
 ---
 
@@ -759,6 +778,9 @@ GDD assumes:
 10. Death variants (§12a): after a big fight (≥ 15 kills in one area), is the ground still calm?
     Does anyone mistake a corpse for a live goblin, or a blood splat for burning ground? Can players
     say which tool killed a goblin from its death alone?
+11. Recruit names (§14, M7 results screen): does "<name> the Volunteered" listed under *Fell in
+    battle* or *Left behind.* read as a joke or as a bug? If any tester misreads it as the death cause,
+    swap the epithet in `src/data/names.ts`. Target: no tester confuses an epithet with a cause.
 
 ---
 
