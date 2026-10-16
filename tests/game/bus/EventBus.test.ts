@@ -4,7 +4,13 @@ import { EventBus } from '@game/bus/EventBus';
 import type { GameEventName, GameEvents } from '@game/events';
 
 type Died = GameEvents['unit:died'];
-const died = (id: number): Died => ({ id: id as EntityId, team: 'squad', cause: 'combat' });
+const died = (id: number): Died => ({
+  id: id as EntityId,
+  team: 'squad',
+  cause: 'combat',
+  deathVariant: 'blood',
+  gibbed: false,
+});
 const leader = (id: number): GameEvents['squad:leader-changed'] => ({ id: id as EntityId });
 
 /** Records calls as "<label><id>" strings, e.g. "a1". */
@@ -237,8 +243,10 @@ describe('EventBus: types', () => {
     const bus = new EventBus();
     const name = 'squad:leader-changed' as GameEventName;
     // Type-only checks: the emits run on an empty bus and do nothing.
-    // @ts-expect-error the payload of unit:died needs team and cause
+    // @ts-expect-error the payload of unit:died needs team, cause, deathVariant and gibbed
     bus.emit('unit:died', leader(1));
+    // @ts-expect-error unit:died needs deathVariant and gibbed since M4
+    bus.emit('unit:died', { id: 1 as EntityId, team: 'squad', cause: 'combat' });
     // @ts-expect-error a widened name can't be paired with a payload
     bus.emit(name, leader(1));
     // @ts-expect-error listener parameter must match the event payload
