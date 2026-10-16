@@ -6,8 +6,19 @@ export const Depth = {
    * playtest, M3-T9 Re-review 4).
    */
   GroundMarker: 5,
+  /**
+   * Wizard health bars, on the ground layer like the marker and above it (they sit below the
+   * feet, partly under the marker's ellipse). A wizard behind may partly hide them (CD, M4 T12).
+   */
+  GroundBars: 6,
   /** Units, the leader included, sort by feet y inside [Units, Units + 1): see {@link unitDepth}. */
   Units: 10,
+  /** Goblin health bars and the Burning overlay, above every unit (readability.md §4a: corpses below). */
+  UnitOverlays: 20,
+  /** Projectiles in flight (readability.md §4a: above live units). */
+  Projectiles: 30,
+  /** Death puffs and other short FX. */
+  Fx: 40,
   Debug: 1000,
 } as const;
 

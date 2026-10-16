@@ -82,7 +82,9 @@ where everything competes, and green goblins on a green forest floor.
    - No full-screen white.
    - Screen flashes (portal opening only) ≤ 100 ms at ≤ 50% opacity.
    - Impact flashes stay local to their radius.
-   - No more than 3 flashes per second anywhere.
+   - No more than 3 flashes per second anywhere. This covers impact flashes, skeleton flashes and
+     the portal screen flash. **Sprite hit flashes (§1.8) are exempt:** they're small, local and
+     sprite-only, and capping them would hide hit feedback (CD decision 2026-10-16, M4 T12).
 10. **No information by colour alone.** Every gameplay distinction has at least one non-colour cue
     (shape, size, animation or position). That's what the checklist in §7 tests.
 
@@ -112,7 +114,7 @@ Shared features (beard, cloak, posture) belong to the base body and must not blu
 **Wizard state cues**
 | State | Requirement |
 |---|---|
-| Damaged | **24×3 px** health bar under the sprite, shown only below full HP, outlined. Separate from the leader marker. Not gold. |
+| Damaged | **24×3 px** health bar at the feet (**+ 9 px** below the feet), shown only below full HP, outlined. Drawn on the **ground layer, below every character**, like the leader marker: it never draws over a wizard, and the wizard behind may partly hide it in single file (same rule as the marker). Separate from the leader marker. Not gold. With followers 26 px apart and wizards 42–47 px tall, any bar drawn over the sprites covers a neighbour's face in a north-south file. That's why it's on the ground (CD decision 2026-10-16, M4 T12, replacing "above the hat"). Goblin bars are unchanged (§3). *Verify:* north-south and east-west single file, every wizard damaged: no bar draws over any wizard sprite, and the leader's bar is at least partly visible. |
 | Low HP (≤ 25%) | The health bar blinks. No sprite tint. |
 | Death | Death puff, and the **hat stays on the ground** as an outlined prop for about 5 s before fading (Hat Hill tone, "who did I lose?"). The hat shape tells you the class. |
 | Channelling (Convergence) | Casting pose (staff raised). A beam from the staff tip to the leader in the class's element colour: fire beam orange, storm beam cyan-white; both have a violet core where they meet the leader. |

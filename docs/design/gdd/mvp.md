@@ -163,6 +163,14 @@ the reaction before the player learns to aim it.
 | Key | Value |
 |---|---|
 | `targeting.retargetMs` | 250 |
+| `combat.projectileRangeFactor` | 1.2 (autos expire at `rangePx × 1.2`) |
+| `combat.knockbackMs` | 120. Knockback is eased over this long, never a teleport. CD-approved 2026-10-16, M4 Q3. |
+| `combat.maxFrameDtMs` | 100. Gameplay dt is clamped to this (tab switch, hitch), so cooldowns, ticks and projectiles never jump. CD-approved 2026-10-16, M4 Q3. |
+
+Per-class `moveSpeed` (Pyromancer 110, Stormcaller 120) is kept in data for post-MVP only; the squad
+moves at one speed (Q9).
+
+Data: `src/data/classes.ts` (`CLASSES`), `src/data/combat.ts` (`COMBAT`).
 
 Sustained single-target DPS: Pyromancer 8.9 + Burning 6 = **~15**. Stormcaller **10**, plus a
 Combust about every 1–2 s when paired with a Pyromancer. Full squad on one target is about 50 DPS.
@@ -173,7 +181,21 @@ Combust about every 1–2 s when paired with a Pyromancer. Full squad on one tar
 - A dead wizard's projectiles already in flight still resolve.
 
 **Verify.** Place 6 grunts in a group. With no player input, the squad kills them, Burning shows
-on targets, and at least one Combust triggers.
+on targets, and at least one Combust triggers (Combust from M5 on).
+
+**M4 dev encounter (D2)** (`DEV_ENCOUNTER` in `src/data/devArena.ts`, M4 Q1). Squad P,S,P,S (Q18) at
+the arena centre, followers trailing south. Offsets are from the leader's spawn:
+- **6 grunts**, a 3×2 grid 32 px apart (x −32/0/32, y −210/−178), so the bodies (24 px) don't
+  overlap. Every grunt is 178–213 px from the leader, inside grunt aggro (220): the whole pack charges
+  at once. *Feel:* a swarm runs in, the Pyromancers set the front row burning, the sparks finish
+  them. The squad should win with **no input**, ≥ 1 wizard alive, in under 30 s (target 3–5 s, §16
+  request 1).
+- **2 archers**, 400 px east (y −24/+24), outside archer aggro (260) of every wizard at spawn. They
+  stay idle until the playtester walks over, then keep range and outshoot the autos. *Feel:* "I
+  have to push in." It's the manual archer check, not part of the no-input win.
+- *How to verify:* headless core sim (60/30/144 fps, 3 seeds) and the reviewer's in-game run both
+  end with every grunt dead and ≥ 1 wizard alive, zero input. Then walk east: archers wake inside
+  260 px and retreat below 120 px.
 
 ---
 
@@ -242,7 +264,7 @@ with P,P,S,S loses Lightning.
 | `burning.tickMs` | 500 |
 | `burning.durationMs` | 3000 |
 
-Total damage: 6 ticks × 3 = **18**.
+Total damage: 6 ticks × 3 = **18**. Data: `src/data/statuses.ts` (`STATUSES.burning`).
 
 - First tick at `tickMs` after application (no tick on apply).
 - **Reapply refreshes the duration and keeps the tick phase.** No stacking, so fast refreshing
@@ -251,6 +273,9 @@ Total damage: 6 ticks × 3 = **18**.
 - In the MVP Burning never lands on wizards: no enemy uses fire, and Kaboom only applies Burning
   to non-wizards (§8).
 - Removed on death. Burning ticks don't trigger Combust because they're fire, not storm.
+- **Credit:** tick damage is credited to the unit that applied (or last refreshed) the Burning, so a
+  tick kill counts as a squad kill for the score and the meter (§0 kill credit, §9). CD-approved
+  2026-10-16 (M4).
 
 **Verify.** Unit test: apply at t=0, reapply at t=1200. Expect ticks at 500, 1000, 1500… with the
 last at 4000. Total 8 ticks = 24 damage.
@@ -446,7 +471,9 @@ loss on activation. Death mid-sprint still detonates.
 | maxHp | 24 |
 | moveSpeed | 85 px/s (slower than the squad, so you can kite) |
 | melee | 6 dmg physical, range 28 px centre to centre (body contact 22 + 6 reach), cooldown 900 ms |
+| windupMs | 150. Visible tell before the swing (readability ≥ 100 ms). If the target is out of range at release, the swing whiffs and the cooldown is still spent (M4 Q2). CD-approved 2026-10-16, M4 Q3. |
 | aggroRadiusPx | 220 |
+| retargetMs | 500 |
 | knockback taken | yes |
 
 AI: idle → chase the nearest wizard (retarget every 500 ms) → attack in range. No leash.
@@ -461,12 +488,29 @@ Three grunts on one Stormcaller kill it in about 2.8 s, so swarms have to be ans
 | retreatBelowPx | 120 |
 | arrow | 5 dmg physical, range 220, speed 200 px/s, cooldown 1800 ms, draw tell 300 ms |
 | aggroRadiusPx | 260 |
+| retargetMs | 500 (same as the grunt). CD-approved 2026-10-16, M4 Q3. |
+| knockback taken | yes |
+
+Data: `src/data/enemies.ts` (`ENEMIES`). Enemy attacks deal no knockback in the MVP.
 
 AI: idle → keep range (step back if closer than 120, step in if farther than 200) → draw (300 ms,
 visible pose) → shoot at the target's position **at draw start** (no lead). A moving squad dodges
-most arrows; a standing one doesn't. Arrows stop on collision tiles and don't hit kegs.
+most arrows; a standing one doesn't. Arrows stop on collision tiles and don't hit kegs. They
+expire after `rangePx × combat.projectileRangeFactor` of travel (220 × 1.2 = 264 px), the same rule
+as wizard autos (§3), so a dodged arrow doesn't fly on across the map. One rule for every projectile. CD-approved
+2026-10-16 (M4).
 Range 220 beats both auto-attack ranges (180/160), so the archer *forces* a push or a Lightning
 cast. It retreats slower (70) than the squad moves, so pushing in works.
+
+**Pushed archers don't shoot (M4 T7).** While its target is closer than `retreatBelowPx` (120), the
+archer retreats and **does not start a draw**, even with its cooldown ready. A draw that has already
+started always finishes and shoots at the locked aim, so the tell never lies. *Feel:* push in and the
+archer panics and backs off instead of firing point-blank. Pushing is rewarded, not punished. A
+cornered archer that can't back away still doesn't draw; it's easy prey, which is the lesson.
+*Verify (core-dev):* (1) cooldown ready, target at 110 px → no draw, archer moves away. (2) Draw
+starts at 130 px, the target closes to 100 px mid-draw → the arrow still fires at the draw-start
+position. (3) Target at 120 px exactly → may draw (the band is "closer than 120"). (4) Archer pinned
+at the arena edge, target at 100 px → no draw.
 
 ### Goblin Hut: *"Shut the tap. Spawns grunts until destroyed; lights a portal rune."*
 | Key | Value |
@@ -531,6 +575,9 @@ on `unit:died` (§15).
 | `deaths.gibs.lifetimeMs` | 8000, then fade over `deaths.gibs.fadeMs` = 1000 |
 | `deaths.gibs.maxPieces` | 32 (pooled; oldest fades out over `recycleFadeMs`) |
 | `deaths.gibs.maxGibbedPerEvent` | 4 (goblins per single area event; the rest die normally) |
+
+Data (M4): `src/data/combat.ts` (`GIBS.overkillRatio`, `GIBS.maxGibbedPerEvent`). The other keys come
+with art in M8.
 
 **Corpses**
 - Purely visual. No collision, never targetable, never take damage, never trigger kegs or
@@ -760,7 +807,8 @@ GDD assumes:
 1. Is the Grunt at 24 HP fodder (good) or paper (too fast)? Target: a pack of 6 takes 3–5 s to clear
    with auto-attacks only.
 2. Do archers feel like "push or snipe", or just annoying? Target: < 25% of squad damage taken
-   comes from arrows in section 2.
+   comes from arrows in section 2. M4 check (dev encounter archers): push in with the squad. Does the
+   archer visibly back off without firing below 120 px, and does pushing feel like the right answer?
 3. Meter: ready about once per section? Log the time to full for each section.
 4. Kaboom at ×0.5 squad damage: do players avoid kegs, or ignore the risk?
 5. Extraction radius 112 (approved): how often is someone left behind when the player *wasn't* careless?
