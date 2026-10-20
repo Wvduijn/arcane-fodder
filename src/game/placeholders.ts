@@ -13,6 +13,22 @@ export const PlaceholderTextures = {
   /** Two flicker frames of the Burning overlay. */
   BurningA: 'placeholder-burning-a',
   BurningB: 'placeholder-burning-b',
+  /** Powder keg, 32×32 frame with the danger mark (readability.md §4). */
+  Keg: 'placeholder-keg',
+  /** Fireball in flight: a 15 px glowing orb (readability.md §5). */
+  FireballOrb: 'placeholder-fireball-orb',
+  /** Small hot speck: Fireball trail, Combust ember arcs, keg fuse sparks. */
+  Ember: 'placeholder-ember',
+  /** Lightning ground flash: white core, cyan edge, 10 px radius (the reticle's size). */
+  StormFlash: 'placeholder-storm-flash',
+  /** Kaboom debris speck: white body (tinted bark or slate), ink outline, matte. */
+  Debris: 'placeholder-debris',
+  /** HUD slot icons, 12×12, drawn at 2× as the 24×24 icon (readability.md §5b). */
+  IconFireball: 'placeholder-icon-fireball',
+  IconLightning: 'placeholder-icon-lightning',
+  /** Greyscale twins for a lost slot (readability.md §5b: `ash`/`slate`). */
+  IconFireballLost: 'placeholder-icon-fireball-lost',
+  IconLightningLost: 'placeholder-icon-lightning-lost',
 } as const;
 
 /** One wizard texture per class: hat, robe and staff tip differ (readability.md §2). */
@@ -54,6 +70,18 @@ export const PROJECTILE_ORIGINS = {
   [PlaceholderTextures.Spark]: { x: 0.5, y: 0.5 },
   [PlaceholderTextures.Arrow]: { x: 10 / 12, y: 0.5 },
 } as const;
+
+/**
+ * Keg anchor as origin fractions: the footprint centre (where the body circle sits), 7.5 px above
+ * the barrel's bottom edge in the 32×32 frame.
+ */
+export const KEG_ANCHOR = { x: 0.5, y: 22 / 32 } as const;
+
+/** Radius of the StormFlash texture, in texture px. */
+export const STORM_FLASH_RADIUS_PX = 10;
+
+/** Its near-white centre (the inner half of the disc), for the §1.9 flash budget. */
+export const STORM_FLASH_CORE_RADIUS_PX = STORM_FLASH_RADIUS_PX * 0.5;
 
 /** Map tile size (tiled-conventions.md). Placeholder rendering only; M7 reads tilewidth from the map. */
 export const TILE_SIZE_PX = 16;
@@ -235,6 +263,130 @@ const BURNING_PIXELS = [
   '..OOOO..',
 ] as const;
 
+/**
+ * Powder keg (readability.md §4, style guide §keg): a 20×24 barrel in a 32×32 frame, ink outline,
+ * leather/bark staves, slate hoops, a thick ink powder band with a cream bomb stencil (its fuse
+ * and spark top right), and a fuse stub on the lid. No skull, and no other prop uses this mark.
+ */
+const KEG_PIXELS = [
+  '.................I..............',
+  '...............I.cI.............',
+  '...............IcI..............',
+  '...............Ic...............',
+  '...............Ic...............',
+  '...............Ic...............',
+  '.........IIIIIIIIIIIIII.........',
+  '........IddddddddddddddI........',
+  '.......IddddddddddddddddI.......',
+  '......IwwwwwwwwwwwwwwwwwwI......',
+  '......IhhhhhhhhhhhhhhhhhhI......',
+  '......IwwwdwwwwwwwwwwdwwwI......',
+  '......IwwwdwwwwwwwwwwdwwwI......',
+  '......IppppppppppppspppppI......',
+  '......IppppppppppppbpppppI......',
+  '......IpppppppppppbppppppI......',
+  '......IpppppppbbbbpppppppI......',
+  '......IppppppbpbbbbppppppI......',
+  '......IppppppbbbbbbppppppI......',
+  '......IppppppbbbbbbppppppI......',
+  '......IppppppbbbbbbppppppI......',
+  '......IpppppppbbbbpppppppI......',
+  '......IppppppppppppppppppI......',
+  '......IwwwdwwwwwwwwwwdwwwI......',
+  '......IwwwdwwwwwwwwwwdwwwI......',
+  '......IhhhhhhhhhhhhhhhhhhI......',
+  '......IwwwwwwwwwwwwwwwwwwI......',
+  '.......IwwwwwwwwwwwwwwwwI.......',
+  '........IwwwwwwwwwwwwwwI........',
+  '.........IIIIIIIIIIIIII.........',
+  '................................',
+  '................................',
+] as const;
+
+/** Props sit a clear saturation step below units and FX (readability.md §1.2). */
+const KEG_PALETTE: Palette = {
+  I: '#1a1020', // ink outline
+  w: '#8f5a34', // leather staves
+  d: '#5c3a24', // bark lid, stave seams
+  h: '#4f4a5e', // slate hoops
+  p: '#1a1020', // ink powder band
+  b: '#f4ecdc', // cream bomb stencil
+  s: '#fff4c2', // flame-white stencil spark
+  c: '#807a8c', // ash fuse cord
+};
+
+/** Ember: 3 px `ember` dot with a `flame-white` centre (readability.md §5). */
+const EMBER_PIXELS = ['.E.', 'EWE', '.E.'] as const;
+
+const EMBER_PALETTE: Palette = { E: '#f2581f', W: '#fff4c2' };
+
+/** Debris speck: 3×3, white body to tint bark or slate, ink outline, matte (readability.md §5). */
+const DEBRIS_PIXELS = ['II.', 'IwI', '.II'] as const;
+
+const DEBRIS_PALETTE: Palette = { I: '#1a1020', w: '#ffffff' };
+
+/** HUD Fireball icon (readability.md §5b): teardrop flame point up, flame-white core, ember lower edge. */
+const ICON_FIREBALL_PIXELS = [
+  '.....II.....',
+  '....IOOI....',
+  '....IOOI....',
+  '...IOOOOI...',
+  '...IOWWOI...',
+  '..IOOWWOOI..',
+  '..IOWWWWOI..',
+  '.IOOWWWWOOI.',
+  '.IOWWWWWWOI.',
+  '.IEOWWWWOEI.',
+  '..IEEOOEEI..',
+  '...IIIIII...',
+] as const;
+
+/** HUD Lightning icon (readability.md §5b): 3-segment zigzag, top right to bottom left, bolt core. */
+const ICON_LIGHTNING_PIXELS = [
+  '.......III..',
+  '......ICBI..',
+  '.....ICBI...',
+  '....ICBI....',
+  '...ICBBIII..',
+  '..ICBBBBBI..',
+  '..IIIBBCI...',
+  '....IBCI....',
+  '...IBCI.....',
+  '...ICI......',
+  '..ICI.......',
+  '..II........',
+] as const;
+
+/** Style-guide colours (§4): ink, flame, flame-white, ember, cyan, bolt. */
+const ICON_PALETTE: Palette = {
+  I: '#1a1020',
+  O: '#ffab2e',
+  W: '#fff4c2',
+  E: '#f2581f',
+  C: '#6fe7ff',
+  B: '#fff36b',
+};
+
+/** Lost-icon greys (style guide §4) and the luma split between them; ink outlines stay ink. */
+const LOST_ICON = { light: '#807a8c', dark: '#4f4a5e', ink: '#1a1020', lumaSplit: 150 } as const;
+
+/** The same icon in `ash` (light colours) and `slate` (dark ones), outline kept (readability §5b). */
+function greyscalePalette(palette: Palette): Palette {
+  const grey: Record<string, string> = {};
+  for (const [key, color] of Object.entries(palette)) {
+    if (color === LOST_ICON.ink) {
+      grey[key] = color;
+      continue;
+    }
+    const r = parseInt(color.slice(1, 3), 16);
+    const g = parseInt(color.slice(3, 5), 16);
+    const b = parseInt(color.slice(5, 7), 16);
+    const luma = 0.299 * r + 0.587 * g + 0.114 * b;
+    grey[key] = luma >= LOST_ICON.lumaSplit ? LOST_ICON.light : LOST_ICON.dark;
+  }
+  return grey;
+}
+
 export function createPlaceholderTextures(textures: Phaser.Textures.TextureManager): void {
   drawPixelArt(textures, WizardTextures.pyromancer, PYROMANCER_PIXELS, PYROMANCER_PALETTE);
   drawPixelArt(textures, WizardTextures.stormcaller, STORMCALLER_PIXELS, STORMCALLER_PALETTE);
@@ -246,8 +398,61 @@ export function createPlaceholderTextures(textures: Phaser.Textures.TextureManag
   drawPixelArt(textures, PlaceholderTextures.Puff, PUFF_PIXELS, FX_PALETTE);
   drawPixelArt(textures, PlaceholderTextures.BurningA, BURNING_PIXELS, FX_PALETTE);
   drawPixelArt(textures, PlaceholderTextures.BurningB, mirror(BURNING_PIXELS), FX_PALETTE);
+  drawPixelArt(textures, PlaceholderTextures.Keg, KEG_PIXELS, KEG_PALETTE);
+  drawPixelArt(textures, PlaceholderTextures.Ember, EMBER_PIXELS, EMBER_PALETTE);
+  drawPixelArt(textures, PlaceholderTextures.Debris, DEBRIS_PIXELS, DEBRIS_PALETTE);
+  drawPixelArt(textures, PlaceholderTextures.IconFireball, ICON_FIREBALL_PIXELS, ICON_PALETTE);
+  drawPixelArt(textures, PlaceholderTextures.IconLightning, ICON_LIGHTNING_PIXELS, ICON_PALETTE);
+  const lostPalette = greyscalePalette(ICON_PALETTE);
+  drawPixelArt(textures, PlaceholderTextures.IconFireballLost, ICON_FIREBALL_PIXELS, lostPalette);
+  drawPixelArt(textures, PlaceholderTextures.IconLightningLost, ICON_LIGHTNING_PIXELS, lostPalette);
+  // Fireball orb: 15 px across, stepped white → yellow → orange → red edge (hard steps, no soft pixels).
+  drawDisc(textures, PlaceholderTextures.FireballOrb, 7.5, [
+    { upTo: 0.35, color: '#ffffff' },
+    { upTo: 0.6, color: '#ffe14d' },
+    { upTo: 0.85, color: '#ff8a1f' },
+    { upTo: 1, color: '#d8361f' },
+  ]);
+  drawDisc(textures, PlaceholderTextures.StormFlash, STORM_FLASH_RADIUS_PX, [
+    { upTo: STORM_FLASH_CORE_RADIUS_PX / STORM_FLASH_RADIUS_PX, color: '#fff36b' },
+    { upTo: 0.8, color: '#6fe7ff' },
+    { upTo: 1, color: '#1a6a8a' },
+  ]);
   drawGridTile(textures, PlaceholderTextures.Ground, GROUND_COLORS);
   drawGridTile(textures, PlaceholderTextures.GroundBorder, GROUND_BORDER_COLORS);
+}
+
+/** One colour band of a disc: pixels whose centre is within `upTo` × radius of the middle. */
+interface DiscBand {
+  readonly upTo: number;
+  readonly color: string;
+}
+
+/** A pixel-exact disc of `radius` (texture ⌈2r⌉ square) with hard concentric colour bands, inner first. */
+function drawDisc(
+  textures: Phaser.Textures.TextureManager,
+  key: string,
+  radius: number,
+  bands: readonly DiscBand[],
+): void {
+  if (textures.exists(key)) return;
+
+  const size = Math.ceil(radius * 2);
+  const texture = textures.createCanvas(key, size, size);
+  if (!texture) throw new Error(`Could not create placeholder texture "${key}"`);
+
+  const { context } = texture;
+  const centre = size / 2;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const d = Math.hypot(x + 0.5 - centre, y + 0.5 - centre) / radius;
+      const color = bands.find((band) => d <= band.upTo)?.color;
+      if (color === undefined) continue;
+      context.fillStyle = color;
+      context.fillRect(x, y, 1, 1);
+    }
+  }
+  texture.refresh();
 }
 
 function mirror(rows: PixelRows): PixelRows {

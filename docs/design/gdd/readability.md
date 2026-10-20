@@ -82,9 +82,21 @@ where everything competes, and green goblins on a green forest floor.
    - No full-screen white.
    - Screen flashes (portal opening only) ≤ 100 ms at ≤ 50% opacity.
    - Impact flashes stay local to their radius.
+   - **What counts as an impact flash (CD 2026-10-19, M5 T10 n1 / T11 n2):** a near-white burst core or ground
+     flash whose near-white area has a **radius ≥ 16 px** (logical). Today: the Fireball burst core
+     (about 18 px) and the Kaboom core (about 29 px) count. The Combust pop core (about 13 px), the
+     Lightning ground flash, staff-tip glows, sparks and bolts don't: they're small, and §1.6
+     requires a near-white core on every FX, so counting them all would starve the budget. The
+     electrified-death skeleton flash (§4a) and the portal screen flash count as before. When the cap skips a
+     flash, only the near-white core is dropped: the burst still draws with its edge colour
+     (`flame`/`ember`), so the area read (radius, §5) is never lost. Any new FX whose near-white
+     area reaches 16 px joins the budget automatically.
    - No more than 3 flashes per second anywhere. This covers impact flashes, skeleton flashes and
      the portal screen flash. **Sprite hit flashes (§1.8) are exempt:** they're small, local and
      sprite-only, and capping them would hide hit feedback (CD decision 2026-10-16, M4 T12).
+     **The keg fuse blink (§4, §5) is also exempt:** a local white/`crimson` sprite tint for the
+     300 ms fuse, the main friendly-fire warning in the MVP, so it's meant to be the loudest tell
+     (CD 2026-10-16, M5).
 10. **No information by colour alone.** Every gameplay distinction has at least one non-colour cue
     (shape, size, animation or position). That's what the checklist in §7 tests.
 
@@ -158,7 +170,7 @@ height. With hats, every wizard stands 11–21 px above every goblin. That's the
 |---|---|
 | Idle | **32×32 sprite frame** with the barrel art about 20×24 px inside it, on a **16×16 (1-tile) collision footprint** (agreed with art-director and level-designer). Uses a unique **danger mark**: a powder band, a bomb stencil and a fuse stub. No skull (reserved for the post-MVP Necromancer). No other prop uses this mark. |
 | Tileset rule | **No non-explosive barrels or kegs anywhere in the tileset or props.** |
-| Fuse (300 ms) | Rapid white/red blink, sparks from the fuse, **and the 72 px blast radius drawn as a ground ring** (outlined, so it reads on grass) for the duration of the fuse. That's the only friendly-fire area in the MVP, so it must be the clearest warning in the game. |
+| Fuse (300 ms) | Rapid white/red blink (exempt from the §1.9 cap, CD 2026-10-16, M5), sparks from the fuse, **and the 72 px blast radius drawn as a ground ring** (outlined, so it reads on grass) for the duration of the fuse. That's the only friendly-fire area in the MVP, so it must be the clearest warning in the game. |
 
 ### Portal (exit and progress meter)
 | State | Requirement |
@@ -243,6 +255,29 @@ Every FX follows §1.6 (a near-white core plus an edge step).
 | Arcane Detonation | Volunteer! blast | Violet burst, 64 px, with a hat flying up (tone). |
 | Hit flash / death puff | Damage / wizard death | White 60 ms sprite flash. A neutral grey puff for **wizard** deaths. Enemy deaths use the variants in §4a. |
 
+**Reaction FX numbers (M5 placeholder spec).** Starting values for game-dev's placeholder FX in
+M5, tuned at the M5 gate and replaced by final FX in M8. Radii come from data
+(`REACTIONS.combust.blast.radiusPx`, `REACTIONS.kaboom.blast.radiusPx`); never hard-code them.
+
+| FX | Item | Value |
+|---|---|---|
+| Combust pop | Size | Expands from 8 px to the blast radius (32), peak within ± 2 px of it |
+| | Timing | Expand 80 ms, then fade 100 ms: **180 ms total**. Faster than any other blast |
+| | Look | `flame-white` core disc (about 40% of the radius, so about 13 px, under the 16 px impact-flash size, §1.9: it never asks the flash budget), `flame`/`ember` edge step, 1 px `ink` rim. No smoke, no shake, no screen flash |
+| | Ember arcs | One per `spreadTo` unit: a 3 px `ember` dot with a `flame-white` centre, flies origin → unit in **200 ms** on an arc peaking **10 px** above the straight line, 2-frame trail. **Decorative:** the target's Burning overlay starts on `status:applied` as usual (Combust time), so the arc lands on a target that's already burning. Views never hold back state. A target that dies mid-arc: the arc still finishes at the death point and fades |
+| Kaboom fuse | Ring | Radius = blast radius (72), static (it's the true danger area, so it never shrinks). 2 px `crimson` stroke with a 1 px `ink` line inside and outside (style guide §10). Ground-ring layer (§4a). Shown for the **whole** `fuseMs` (300), removed on the blast frame |
+| | Keg blink | Sprite tint alternating white/`crimson`, **100 ms period** (3 blinks per fuse). Sprite-only and local, exempt from the §1.9 cap (CD 2026-10-16, M5) |
+| | Sparks | 2–3 `flame` sparks per 100 ms from the fuse stub, life ≤ 150 ms |
+| Kaboom blast | Size | Expands from 16 px to 72, peak within ± 4 px of the ring the player just saw |
+| | Timing | Expand 60 ms, hold 40 ms, fade 200 ms: **300 ms total** |
+| | Look | `flame-white` core (about 40% of the radius), `flame`/`ember` body, `ink` rim. One local impact flash at the core (counts toward the §1.9 cap: a 4th flash within any second is skipped, the blast itself still draws) |
+| | Smoke column | 3 `ash` puffs rising 24–32 px over 600 ms, gone by 900 ms. This is what separates it from Combust in grayscale |
+| | Debris | 4–6 `bark`/`slate` specks, `ink` outline, land within 48 px in ≤ 400 ms. Not gibs, no blood |
+| | Screen shake | **2 px**, **120 ms**. A chain restarts the shake, never stacks it |
+
+*Verify:* in a screenshot sequence, a Combust pop is visibly smaller, shorter and smoke-free next to
+a Kaboom (§7 grayscale check), and the Kaboom blast's edge lands on the fuse ring it replaced.
+
 **Telegraph rule.** Everything that can hurt the **squad** has a tell of at least 100 ms: the grunt
 wind-up, the archer draw (300 ms) and the keg fuse with ring (300 ms). Everything the **player**
 aims shows where it will land before or when it lands.
@@ -286,14 +321,80 @@ options are the art-director's call. For example: one shared collapse animation 
 type, and **blood** as the base animation plus engine FX. The corpse pose (last frame) is shared,
 with the variant shown by palette and decal.
 
+## 5b. HUD spell slots (M5, `HudScene`)
+
+**Intent.** One glance at the bottom-left corner answers instant read 3 (§6): "which spells do I
+still have, and when can I fire them?" Ready slots look alive, cooling slots tell you how long,
+and a lost slot is unmistakably dead, by shape and value, not colour alone (§1.10).
+
+**Where.** `HudScene` runs on top of `MissionScene` with its own camera (no scroll, no zoom), so
+every number below is in the **640×360 logical view**: integer positions and no extra scaling
+inside that view. The physical scale on a device is `Scale.FIT`'s (×2 at 1280×720, about ×1.08 on
+an 844×390 phone).
+
+**Palette (CD 2026-10-16, M5):** `cream` is approved for HUD text and borders on the `ink` plate.
+The art-director adds this exception to the style guide's `cream` row in M8.
+
+**Data home (CD decision 2026-10-16, M5):** these HUD numbers and the §5 reaction FX numbers live as
+named constants in `src/game` that cite this section, not in `src/data` (the M4 precedent). They're
+revisited with final art in M8.
+
+| Item | Value |
+|---|---|
+| Slot frame | **32×32**, 1 px border, fill `ink` at 75% alpha (a dark plate, so it reads on bright grass) |
+| Icon | **24×24**, centred in the frame (4 px inset) |
+| Slot 1 (Fireball) | top-left at **(8, 320)**: 8 px from the left edge, 8 px from the bottom |
+| Slot 2 (Lightning) | top-left at **(44, 320)**: 4 px gap after slot 1 |
+| Key label badge | **10×10** at the slot's bottom-right, top-left at (slot x + 24, slot y + 24), so it overhangs the frame by 2 px. Fill `ink`, 1 px `cream` border, letter **Q** (slot 1) / **E** (slot 2) in `cream`, the HUD pixel font at about 7 px cap height, centred |
+| Seconds text | Centred in the icon, `cream`, 1 px `ink` outline, same font |
+| Reserved | Keep x ≥ 84 in the bottom 40 px free for M6's Convergence meter (it goes right of slot 2) |
+
+Slot order is fixed by data (`SPELLS.<id>.slot`), never by which classes are alive (GDD §4, §5).
+
+**Placeholder icons** (until M8's final icons). Each differs in **shape** as well as hue:
+- **Fireball:** a teardrop flame, point up, `flame` body, `flame-white` core, `ember` lower edge,
+  1 px `ink` outline.
+- **Lightning:** a 3-segment zigzag bolt, top-right to bottom-left, `cyan` body, `bolt` core, 1 px
+  `ink` outline.
+
+**States**
+
+| State | Frame border | Icon | Overlay | Key badge |
+|---|---|---|---|---|
+| **Ready** | `cream` | Full colour | None | `cream` letter |
+| **Cooldown** | `ash` | Full colour under the sweep | Radial sweep: an `ink` pie at 65% alpha covers the **remaining** fraction of `cooldownMs`, starting at 12 o'clock and shrinking clockwise. **Remaining seconds** in the centre, rounded up to whole seconds ("4", "3"… for Fireball's 3500 ms; "2", "1" for Lightning). The number disappears with the sweep | `cream` letter |
+| **Lost** (or never granted) | `slate` | Greyscale (`ash`/`slate`), 50% alpha | A **diagonal slash**, top-right to bottom-left, 2 px `ash` with a 1 px `ink` line on both sides (the non-colour cue) | Letter dimmed to `slate`, badge at 50% alpha |
+
+**Transitions**
+- **Cooldown ends:** the border flashes the element core colour (`flame-white` for Fireball, `bolt`
+  for Lightning) for **150 ms**, then turns `cream`. A tiny UI cue, not a §1.9 flash. No scaling
+  (no non-integer pixel art).
+- **Spell lost (`spell:lost`):** the slot shakes once (the denied shake below), the icon fades to
+  greyscale over **250 ms** and the slash appears at the end of the fade. The player catches the
+  "jolt" even mid-fight. It never comes back in the mission.
+- **Never granted** (the class isn't in the starting squad): the slot starts in the lost look with
+  no shake and no fade.
+- **Denied (`spell:denied`, a lost slot pressed):** a horizontal shake of the **slot only** (never the
+  camera): **3 px** amplitude, **200 ms**, 2 full cycles (100 ms period), amplitude easing out
+  linearly to 0, offsets rounded to whole pixels. A new press during a shake restarts it; shakes
+  never stack.
+- **Pressed on cooldown:** nothing (M5 Q4). The sweep already says why.
+
+*How to verify (D7, reviewer):* (1) at 640×360 and at phone size (844×390, the 390×844 phone in landscape), both slots
+sit fully on screen bottom-left, the Q/E badges readable; (2) cast Fireball: the sweep starts full
+and the number reads 4, 3, 2, 1, then the border flash and ready; (3) debug-kill both Pyromancers:
+slot 1 shakes once, greys, gets the slash and stays slot 1 while Lightning still works in slot 2;
+(4) press Q on the lost slot: it shakes, no cooldown or FX; (5) in a 100% grayscale screenshot,
+ready, cooldown and lost are still told apart (border value, sweep, slash).
+
 ## 6. The "instant reads" list
 
 In a busy fight, at phone scale, in ≤ 200 ms, the player must be able to answer:
 
 1. **Which wizard am I?** Gold pulsing, outlined ground marker.
 2. **Which class is that wizard?** Hat height and shape, then robe colour.
-3. **Which spells do I still have?** HUD slots, plus hats among the living. Lost slots are greyed
-   *and* crossed or desaturated.
+3. **Which spells do I still have?** HUD slots (§5b), plus hats among the living. Lost slots are
+   greyed *and* slashed.
 4. **Is that goblin an archer or a grunt?** Narrow with a bow at its side, versus wide with a weapon
    raised.
 5. **Is that an arrow or my spark?** Matte outlined stick, versus a glowing coloured dash.
@@ -372,4 +473,5 @@ the results in docs/reviews/.
 | R7 | Goblin eye colour | **Resolved with art-director.** Acid green is dropped because it vanishes on lime skin. Instead: **2 px flame-orange eyes under a dark brow**, static, no halo or flicker, and dimmer than the Burning core. This bends the reserved-fire-hue rule, but at 2 px with no motion it can't read as Burning (tall, bright, flickering). The §7 grayscale check guards it. M8 playtest item: any confusion means the eyes go pale yellow-white. |
 | R8 **APPROVED** | The veteran wizard look versus the "fresh recruits / rookie volunteers" writing (plan §2 Tone) | **Keep the "rookie" joke** (creative director, at the gate). Art follows the veterans. The game-designer writes `barks.ts` with veterans being called rookies as the running gag. |
 | R10 **DECIDED (CD)** | How far does the gore go? | **Gibs are in** (mvp.md Q22 and §12a). My readability concern stands as a constraint in §4a: spinning arcs, matte, desaturated on landing, ≤ 450 ms and 48 px, capped. The **gore toggle (Q23) is APPROVED**, on by default. |
+| R11 (M5) | Bottom-left spell slots (§5b) sit where M8's virtual joystick goes (plan §6: left half of the screen). | Keep bottom-left for desktop in M5. In M8, **touch moves the slots to spell buttons on the right** (they become the drag-to-aim buttons), and the desktop layout stays. Decide at M8 with the touch layout. The badges show Q/E only, but left and right click also cast slots 1 and 2. Teach that in M8's first-mission hints so mouse players find it. |
 | R9 (new) | Green goblins on a green forest: how is the floor kept apart? | **The floor shifts cooler and earthier** (blue-green grass, moss-brown, dirt paths), and goblin skin stays a warmer, lighter yellow-green. Goblins keep their identity; the floor carries the change. Art-director's call on exact values. The §7 squint and Deuter/Protan checks decide it. |

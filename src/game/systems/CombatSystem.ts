@@ -1,10 +1,13 @@
 import Phaser from 'phaser';
 import type {
   CombatTuning,
+  CombustDef,
+  DamageElement,
   DamageSourceDef,
   DeathCause,
   EntityId,
   GibTuning,
+  KaboomDef,
   ProjectileAttackDef,
   StatusDef,
   StatusId,
@@ -21,11 +24,20 @@ import {
   type Projectile,
   type ProjectileBody,
 } from '@core/combat/projectile';
+import type { AreaBody, AreaEvent, AreaEventResult, UnitPosition } from '@core/combat/area';
+import {
+  resolveAreaWithReactions,
+  resolveKaboom,
+  resolveUnitHit,
+  type ReactionContext,
+  type ReactionResults,
+} from '@core/combat/reactions';
 import { applyStatus } from '@core/combat/status';
 import type { CombatWorld } from '@core/combat/world';
 import { CLASSES } from '@data/classes';
 import { COMBAT, GIBS } from '@data/combat';
 import { MOVEMENT } from '@data/movement';
+import { REACTIONS } from '@data/reactions';
 import { STATUSES } from '@data/statuses';
 import type { EventBus } from '../bus/EventBus';
 import { Depth } from '../depths';
@@ -59,12 +71,25 @@ export interface CombatCounters {
    */
   readonly refusedHits: number;
   readonly deaths: number;
+  readonly combusts: number;
+  readonly kabooms: number;
+  readonly kegsTriggered: number;
+}
+
+/** The kegs as CombatSystem sees them (KegSystem implements it). Kegs are not in the CombatWorld. */
+export interface KegLink {
+  /** Every keg as an area body; only idle ones are `alive` (keg.ts `kegBodies`). */
+  readonly areaBodies: readonly AreaBody[];
+  /** Lights these kegs (no-op for fusing or spent ones); emits `keg:fuse-started`. */
+  trigger(ids: readonly EntityId[]): void;
 }
 
 export interface CombatSystemOptions {
   readonly tuning?: CombatTuning;
   readonly gibs?: GibTuning;
   readonly statuses?: Readonly<Record<StatusId, StatusDef>>;
+  readonly combust?: CombustDef;
+  readonly kaboom?: KaboomDef;
 }
 
 /**
@@ -84,7 +109,17 @@ export class CombatSystem implements System {
   private readonly tuning: CombatTuning;
   private readonly gibs: GibTuning;
   private readonly statuses: Readonly<Record<StatusId, StatusDef>>;
-  private counters: CombatCounters = { shotsFired: 0, hitsLanded: 0, refusedHits: 0, deaths: 0 };
+  private readonly combust: CombustDef;
+  private readonly kaboom: KaboomDef;
+  private counters: CombatCounters = {
+    shotsFired: 0,
+    hitsLanded: 0,
+    refusedHits: 0,
+    deaths: 0,
+    combusts: 0,
+    kabooms: 0,
+    kegsTriggered: 0,
+  };
 
   constructor(
     scene: Phaser.Scene,
@@ -94,11 +129,14 @@ export class CombatSystem implements System {
     private readonly targeting: TargetingSystem,
     private readonly ids: IdAllocator,
     private readonly bus: EventBus,
+    private readonly kegs: KegLink,
     options: CombatSystemOptions = {},
   ) {
     this.tuning = options.tuning ?? COMBAT;
     this.gibs = options.gibs ?? GIBS;
     this.statuses = options.statuses ?? STATUSES;
+    this.combust = options.combust ?? REACTIONS.combust;
+    this.kaboom = options.kaboom ?? REACTIONS.kaboom;
     this.pool = new ImagePool(() =>
       scene.add.image(0, 0, PlaceholderTextures.Spark).setDepth(Depth.Projectiles),
     );
@@ -118,6 +156,16 @@ export class CombatSystem implements System {
 
   get stats(): CombatCounters {
     return this.counters;
+  }
+
+  /** Alive in the combat world (false for dead or unknown ids). */
+  isAlive(id: EntityId): boolean {
+    return this.world.isAlive(id);
+  }
+
+  /** Status on a living unit right now (views read state; a Combust consumes with no event). */
+  hasStatus(id: EntityId, status: StatusId): boolean {
+    return this.world.get(id)?.statuses.has(status) === true;
   }
 
   /** Projectiles in flight, for the debug overlay. */
@@ -144,29 +192,36 @@ export class CombatSystem implements System {
   }
 
   /**
-   * One hit through core. Emits `unit:damaged` when it landed; a kill is queued for
-   * {@link flushDeaths}. A dead or unknown target is a no-op (D4), counted in `refusedHits`.
+   * One hit through core with no reaction (status ticks: Burning is fire, it never Combusts). Emits
+   * `unit:damaged` when it landed; a kill is queued for {@link flushDeaths}. A dead or unknown target
+   * is a no-op (D4), counted in `refusedHits`.
    */
   applyHit(target: EntityId, hit: Hit): HitResult {
     const result = applyHit(this.world, target, hit, this.gibs);
-    // A landed hit's unit is still in the world: only flushDeaths removes units.
-    const unit = this.world.get(target);
-    if (!result.landed || !unit) {
-      this.counters = { ...this.counters, refusedHits: this.counters.refusedHits + 1 };
-      return result;
-    }
-    this.counters = { ...this.counters, hitsLanded: this.counters.hitsLanded + 1 };
-    if (result.dealt > 0) {
-      this.bus.emit('unit:damaged', {
-        id: target,
-        team: unit.team,
-        amount: result.dealt,
-        source: hit.sourceId,
-        element: hit.element,
-      });
-    }
+    this.recordHit(result, hit.sourceId, hit.element);
     if (result.killed) this.pendingDeaths.push(result.death);
     return result;
+  }
+
+  /**
+   * One area blast (Fireball, Lightning) through core `resolveAreaWithReactions`, the only way an
+   * area effect damages units (M5 architecture): its hits, statuses and knockback, then every
+   * Combust it set off, then the kegs its ring lit (handed to KegSystem). All kills are queued for
+   * {@link flushDeaths} with the frame's other deaths.
+   */
+  resolveArea(event: AreaEvent): AreaEventResult {
+    const result = resolveAreaWithReactions(event, this.reactionContext());
+    this.applyArea(result.area, event.sourceId, event.blast.element);
+    this.applyReactions(result, event.sourceId);
+    return result.area;
+  }
+
+  /**
+   * A keg whose fuse ended (KegSystem): the Kaboom blast on wizards and enemies alike through core
+   * `resolveKaboom`, credited to the keg (squad-side, GDD §0), then the kegs it lights (cascade).
+   */
+  resolveKaboom(keg: { readonly id: EntityId; readonly position: Vec2 }): void {
+    this.applyReactions(resolveKaboom(keg, this.reactionContext()), keg.id);
   }
 
   /**
@@ -282,13 +337,93 @@ export class CombatSystem implements System {
     ownerId: EntityId,
     direction: Vec2,
   ): void {
-    const result = this.applyHit(target, { ...source, sourceId: ownerId });
+    const hit: Hit = { ...source, sourceId: ownerId };
+    const outcome = resolveUnitHit(target, hit, this.reactionContext());
+    const result = outcome.hit;
+    this.recordHit(result, ownerId, source.element);
+    this.applyReactions(outcome, ownerId);
     if (!result.landed || result.killed) return;
     if (source.applies !== undefined) this.applyStatus(target, source.applies, ownerId);
     // Only enemies take knockback in M4: no goblin attack has any (GDD §12, M4 Q2).
     if (source.knockbackPx > 0 && this.world.get(target)?.team === 'enemy') {
       this.enemies.knockBack(target, normalizeOrZero(direction), source.knockbackPx);
     }
+  }
+
+  /** `unit:damaged` for a landed hit and the hit counters (D4: a refused hit emits nothing). */
+  private recordHit(result: HitResult, source: EntityId | null, element: DamageElement): void {
+    const unit = this.world.get(result.target);
+    if (!result.landed || !unit) {
+      this.counters = { ...this.counters, refusedHits: this.counters.refusedHits + 1 };
+      return;
+    }
+    this.counters = { ...this.counters, hitsLanded: this.counters.hitsLanded + 1 };
+    if (result.dealt > 0) {
+      this.bus.emit('unit:damaged', {
+        id: result.target,
+        team: unit.team,
+        amount: result.dealt,
+        source,
+        element,
+      });
+    }
+  }
+
+  /** One blast's hits (ascending id), new statuses and knockback (enemies and wizards). */
+  private applyArea(area: AreaEventResult, source: EntityId | null, element: DamageElement): void {
+    for (const hit of area.hits) this.recordHit(hit, source, element);
+    for (const { target, status, result } of area.statuses) {
+      if (result === 'applied') this.bus.emit('status:applied', { id: target, status });
+    }
+    for (const { target, direction, distancePx } of area.knockbacks) {
+      const team = this.world.get(target)?.team;
+      if (team === 'enemy') this.enemies.knockBack(target, direction, distancePx);
+      else if (team === 'squad') this.squad.knockBack(target, direction, distancePx);
+    }
+  }
+
+  /**
+   * What core resolved after a hit or blast: `reaction:triggered` then that reaction's blast, per
+   * reaction in order (`source`: the hit or event that started them); every kill of the call queued once; the kegs it lit handed to KegSystem.
+   */
+  private applyReactions(results: ReactionResults, source: EntityId | null): void {
+    for (const outcome of results.reactions) {
+      const { reaction, at, origin, spreadTo } = outcome;
+      this.bus.emit('reaction:triggered', { reaction, at, origin, spreadTo });
+      const blast = reaction === 'combust' ? this.combust.blast : this.kaboom.blast;
+      // Combust credit is the storm hit's source; Kaboom's is the keg itself (GDD §0).
+      this.applyArea(outcome.area, reaction === 'kaboom' ? origin : source, blast.element);
+      this.counters = {
+        ...this.counters,
+        combusts: this.counters.combusts + (reaction === 'combust' ? 1 : 0),
+        kabooms: this.counters.kabooms + (reaction === 'kaboom' ? 1 : 0),
+      };
+    }
+    this.pendingDeaths.push(...results.deaths);
+    if (results.kegs.length > 0) {
+      this.counters = {
+        ...this.counters,
+        kegsTriggered: this.counters.kegsTriggered + results.kegs.length,
+      };
+      this.kegs.trigger(results.kegs);
+    }
+  }
+
+  private reactionContext(): ReactionContext {
+    return {
+      world: this.world,
+      statuses: this.statuses,
+      gibs: this.gibs,
+      combust: this.combust,
+      kaboom: this.kaboom,
+      units: this.unitPositions(),
+      kegs: this.kegs.areaBodies,
+    };
+  }
+
+  /** Every living unit's feet, for area events. */
+  private unitPositions(): UnitPosition[] {
+    return this.bodies().map(({ id, position }) => ({ id, position }));
   }
 
   /** Every unit alive at the start of the projectile step, as a hit circle at its feet. */

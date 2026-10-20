@@ -87,8 +87,10 @@ export type DamageElement = 'fire' | 'storm' | 'arcane' | 'physical';
 
 export type MageClassId = 'pyromancer' | 'stormcaller';
 export type EnemyId = 'goblin-grunt' | 'goblin-archer';
-/** Granted spells (plan §3.1). Data only in M4; SpellSystem is M5. */
+/** Granted spells (plan §3.1). */
 export type SpellId = 'fireball' | 'lightning';
+export type ReactionId = 'combust' | 'kaboom';
+export type StructureId = 'powder-keg';
 export type StatusId = 'burning';
 /** How an enemy death looks, from the killing blow (GDD §12a). */
 export type DeathVariantId = 'charred' | 'electrified' | 'blood';
@@ -197,5 +199,72 @@ export interface GibTuning {
 /** One enemy in the dev encounter, placed relative to the squad's spawn. Until M7's waves. */
 export interface DevEncounterSpawn {
   readonly enemy: EnemyId;
+  readonly offset: Vec2;
+}
+
+/** How a spell reaches its aim point (GDD §4, §15). */
+export type SpellDelivery =
+  /** Flies from the leader; explodes on the first enemy unit, hut or keg it touches, or at the aim point. */
+  | { readonly kind: 'projectile'; readonly speed: number; readonly projectileRadiusPx: number }
+  /** Telegraph at the aim point, then strikes whatever is in range at strike time. */
+  | { readonly kind: 'strike'; readonly telegraphMs: number };
+
+/** A player-cast area spell (GDD §4). Never damages wizards. */
+export interface SpellDef extends DamageSourceDef {
+  readonly id: SpellId;
+  /** Input and HUD slot (spell1/spell2), fixed by class order in data (GDD §4). */
+  readonly slot: 1 | 2;
+  readonly radiusPx: number;
+  readonly cooldownMs: number;
+  readonly delivery: SpellDelivery;
+}
+
+export interface SpellTuning {
+  /** The aim point is clamped to this distance from the leader (GDD §4). */
+  readonly maxCastRangePx: number;
+}
+
+/** An instant area blast, ring drawn at radiusPx, hits by the body rule (GDD §0). */
+export interface AreaBlastDef extends DamageSourceDef {
+  readonly radiusPx: number;
+}
+
+/** Combust (GDD §7): a `triggerElement` hit on a unit that has `status`. */
+export interface CombustDef {
+  readonly id: 'combust';
+  readonly status: StatusId;
+  readonly triggerElement: DamageElement;
+  /** GDD Q15: the origin loses the status. */
+  readonly consumesStatus: boolean;
+  /**
+   * Damages enemy units and huts only; kegs in range are triggered (the blast is fire, GDD §7).
+   * `applies` spreads to every unit hit except the origin.
+   */
+  readonly blast: AreaBlastDef;
+}
+
+/** Kaboom (GDD §8): a powder keg hit by any `triggerElements` source. */
+export interface KaboomDef {
+  readonly id: 'kaboom';
+  readonly triggerElements: readonly DamageElement[];
+  readonly fuseMs: number;
+  /** Hits everything in range, other kegs included. `applies` lands on enemy units and huts only. */
+  readonly blast: AreaBlastDef;
+  /** Wizards take blast damage × this (GDD Q2: 0.5). */
+  readonly squadDamageMultiplier: number;
+}
+
+export type ReactionDef = CombustDef | KaboomDef;
+
+/** Powder keg (GDD §8, readability §4). Neutral, never auto-targeted, has no HP. */
+export interface KegDef {
+  readonly id: StructureId;
+  readonly bodyRadiusPx: number;
+  /** Square collision footprint side; solid from M7's collision layer (M5 Q1). */
+  readonly footprintPx: number;
+}
+
+/** One keg in the dev arena, relative to the squad's spawn. Until M7's map. */
+export interface DevKegSpawn {
   readonly offset: Vec2;
 }

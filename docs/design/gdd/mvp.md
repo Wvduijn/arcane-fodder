@@ -42,7 +42,7 @@ disagree, data wins and this file gets fixed.
   | Wizard (all classes) | 10 |
   | Goblin Grunt | 12 |
   | Goblin Archer | 10 |
-  | Powder Keg | 8 |
+  | Powder Keg | 8 (`KEG.bodyRadiusPx`) |
   | Goblin Hut | footprint rectangle (closest point) |
 
 - **Area hit rule:** an area effect hits a target when `distance(centre, target) ≤ radiusPx +
@@ -172,8 +172,9 @@ moves at one speed (Q9).
 
 Data: `src/data/classes.ts` (`CLASSES`), `src/data/combat.ts` (`COMBAT`).
 
-Sustained single-target DPS: Pyromancer 8.9 + Burning 6 = **~15**. Stormcaller **10**, plus a
-Combust about every 1–2 s when paired with a Pyromancer. Full squad on one target is about 50 DPS.
+Sustained single-target DPS: Pyromancer 8.9 + Burning 6 = **~15**. Stormcaller **10**, plus about
+one Combust per second per Pyromancer and Stormcaller pair (measured in the M5 sweep: mean 1.13,
+max 1.38). Full squad on one target is about 50 DPS.
 
 **Edge cases**
 - The first attack fires as soon as a target is acquired, if the cooldown is ready. Cooldowns tick
@@ -183,13 +184,25 @@ Combust about every 1–2 s when paired with a Pyromancer. Full squad on one tar
 **Verify.** Place 6 grunts in a group. With no player input, the squad kills them, Burning shows
 on targets, and at least one Combust triggers (Combust from M5 on).
 
+**No-input targets** (CD 2026-10-19, M5 T6 M1). Two targets, because reactions change the clear
+time:
+
+| Mode | Targets, every run (3 seeds × 30/60/144 fps), `DEV_ENCOUNTER` grunt pack |
+|---|---|
+| Reactions **off** (autos only, M4 cases) | Clear in 3–5 s (§16 request 1). Measured: 3.80–4.50 s |
+| Reactions **on** (M5 default) | (1) ≥ 1 grunt melee swing lands, and the first landed swing comes **before** the clear. (2) Clear time **≥ 2.3 s and ≤ 5.0 s**. (3) Combust rate over the fight (Combusts from spawn to clear ÷ clear time) **≥ 1.0 and ≤ 3.0 per second for the squad**, i.e. 0.5–1.5 per pair. (4) ≥ 1 wizard alive, D4 invariants hold. Measured at Combust damage 3: clear 2.33–2.75 s, 1.82–2.75 Combusts/s squad, 1–2 swings in 9/9 runs, 0 wizards lost |
+
+*Feel:* the swarm reaches the squad and gets a swing or two in. Combust is the pop-and-spread that
+sets the pack burning, not what deletes it. The 2.3 s floor is tight (the fastest run is 2.33 s):
+any data change that speeds up the fight should re-run the sim.
+
 **M4 dev encounter (D2)** (`DEV_ENCOUNTER` in `src/data/devArena.ts`, M4 Q1). Squad P,S,P,S (Q18) at
 the arena centre, followers trailing south. Offsets are from the leader's spawn:
 - **6 grunts**, a 3×2 grid 32 px apart (x −32/0/32, y −210/−178), so the bodies (24 px) don't
   overlap. Every grunt is 178–213 px from the leader, inside grunt aggro (220): the whole pack charges
   at once. *Feel:* a swarm runs in, the Pyromancers set the front row burning, the sparks finish
-  them. The squad should win with **no input**, ≥ 1 wizard alive, in under 30 s (target 3–5 s, §16
-  request 1).
+  them. The squad should win with **no input**, ≥ 1 wizard alive, in under 30 s (targets in the
+  no-input table above: 3–5 s autos only, 2.3–5.0 s with reactions).
 - **2 archers**, 400 px east (y −24/+24), outside archer aggro (260) of every wizard at spawn. They
   stay idle until the playtester walks over, then keep range and outshoot the autos. *Feel:* "I
   have to push in." It's the manual archer check, not part of the no-input win.
@@ -219,10 +232,17 @@ Lightning (Stormcaller). An empty or lost slot is shown greyed out (plan §6).
 |---|---|
 | `spells.maxCastRangePx` | 280 |
 
-| Spell | Element | dmg | radiusPx | cooldownMs | Delivery | Applies | knockback px |
-|---|---|---|---|---|---|---|---|
-| Fireball | fire | 28 | 44 | 3500 | projectile 260 px/s; explodes on first contact with an enemy unit, hut, keg or collision tile, or on reaching the aim point | Burning | 24 |
-| Lightning | storm | 30 | 8 | 2000 | telegraph `250 ms` at the aim point, then strike; ignores obstacles | — | 0 |
+| Spell (`SPELLS.<id>`) | `slot` | `element` | `damage` | `radiusPx` | `cooldownMs` | `delivery` | `applies` | `knockbackPx` | `canGib` |
+|---|---|---|---|---|---|---|---|---|---|
+| `fireball` | 1 | fire | 28 | 44 | 3500 | `projectile`, `speed` 260 px/s, `projectileRadiusPx` 6; explodes on first contact with an enemy unit, hut, keg or collision tile, or on reaching the aim point | burning | 24 | false |
+| `lightning` | 2 | storm | 30 | 8 | 2000 | `strike`, `telegraphMs` 250 at the aim point, then strike; ignores obstacles | — | 0 | false |
+
+Data: `src/data/spells.ts` (`SPELLS`, type `SpellDef`; `SPELL_TUNING.maxCastRangePx`, type
+`SpellTuning`). The key `spells.maxCastRangePx` above is `SPELL_TUNING.maxCastRangePx` in code.
+Collision tiles stop Fireball from M7 (M5 Q1). M5 edge rules (CD-approved 2026-10-16, M5 Q4): a
+spell pressed on cooldown does nothing (no shake, the HUD sweep already says why); no cast until the
+pointer has been over the game once; a Fireball in flight or a pending Lightning still lands if the
+leader dies or the spell is lost after the cast.
 
 Lightning (30) one-shots an Archer (18 HP) and a Grunt (24 HP). That's the "snipe with Lightning"
 lesson. Its small radius and 2 s cooldown keep it from clearing packs. With the area hit rule, its
@@ -295,23 +315,56 @@ Thunderstorm/Firestorm bolt).
    `combust.radiusPx`, the origin included.
 4. Apply Burning to every enemy unit and hut in the radius **except the origin**.
 
-| Key | Value |
+| Key (`REACTIONS.combust.…`) | Value |
 |---|---|
-| `combust.damage` | 10 |
-| `combust.radiusPx` | 32 |
+| `status` | burning |
+| `triggerElement` | storm |
+| `consumesStatus` | true (Q15) |
+| `blast.element` | fire |
+| `blast.damage` | 3 (was 10; CD 2026-10-19, M5 T6 M1 sweep) |
+| `blast.radiusPx` | 32 |
+| `blast.applies` | burning (every enemy unit and hut hit, except the origin) |
+| `blast.knockbackPx` | 0 |
+| `blast.canGib` | false |
+
+Data: `src/data/reactions.ts` (`REACTIONS.combust`, type `CombustDef`). Older references to
+`combust.damage` and `combust.radiusPx` mean `blast.damage` and `blast.radiusPx`.
 
 - The explosion is fire, so it can't chain Combust by itself. Chains need more storm hits. That
   makes Combust rhythmic, not instant.
+  **Damage 3 (CD 2026-10-19, M5 T6 M1).** At 10, the rhythm was fine (about 1 Combust/s per pair),
+  but Combust's damage share cleared the dev pack in 1.5–2.2 s, before any grunt reached the squad.
+  A sim sweep (damage 10/6/5/4/3, no spread, slower spark) showed 3 is the only damage-only value
+  where a grunt swings in every run. The spread is kept: most of Combust's value is now the Burning
+  it spreads (18 per target over 3 s), so it *sets up* a pack rather than deleting it. Targets: §3
+  no-input table.
+  **Watch item:** if a 3-damage pop reads weak at the M5 gate (§16 request 12), the spread-delay rule
+  comes back as an **M6 question for the CD**: Burning that came from a Combust can't trigger
+  Combust for a short delay (sim at about 1000 ms). That would let the damage go back up to 6–10
+  with the spread kept. It needs a `CombustDef` field and core logic.
+- A storm hit that kills a burning unit still Combusts at its position (Burning is checked before
+  the hit). The origin dies electrified from the storm hit (§12a), then the blast goes off. Agreed by
+  the producer and reviewer, M5 T6.
+- `reaction:triggered.spreadTo` lists every unit the blast set Burning on, including units whose
+  Burning was only refreshed. Each gets an ember arc (readability §5); `status:applied` still fires
+  only for new Burning.
 - No damage to wizards.
 - Two storm hits on the same frame: the first one Combusts and consumes Burning; the second is a
   plain hit.
 - A keg inside the radius is triggered (Kaboom), because the explosion is fire.
+  - This is the one path where autos light a keg indirectly: a spark on a burning goblin within
+    40 px of a keg (32 + keg body 8). Seen in the M5 T11 playtest: the squad stood near the chain,
+    the pack charged through, and a Combust lit it. **Intended** (Q12 still holds, since autos never
+    target or hit kegs; CD-confirmed 2026-10-19). It's the §8 lesson "keep your squad clear", it's telegraphed by the 300 ms
+    fuse ring, and goblins running past your kegs is exactly when you *want* them to blow. §16
+    request 4 checks whether it feels fair, at the gate and the CD playtest. If it feels unfair, the
+    M6 fallback is "Combust never lights kegs" (a `CombustDef` rule change).
 
 With the area hit rule, Combust's 32 px reaches grunt centres up to 44 px away. That's the
 neighbours touching the origin plus the next ring.
 
 **Verify.** Unit test: a burning grunt with 2 neighbours whose centres are 40 px away, hit by a spark. One Combust
-event; the origin loses Burning; the neighbours gain Burning; all 3 take 10.
+event; the origin loses Burning; the neighbours gain Burning; all 3 take `blast.damage` (3).
 
 ## 8. Powder Keg and Kaboom
 
@@ -330,13 +383,28 @@ takes no HP damage. It's triggered by any hit or area effect of element `fire` o
 3. Apply Burning to enemy units and huts in the radius. Knockback `kaboom.knockbackPx`, including
    wizards.
 
-| Key | Value |
+| Key (`REACTIONS.kaboom.…`) | Value |
 |---|---|
-| `kaboom.fuseMs` | 300 |
-| `kaboom.damage` | 60 |
-| `kaboom.radiusPx` | 72 |
-| `kaboom.squadDamageMultiplier` | 0.5 (a wizard takes 30) |
-| `kaboom.knockbackPx` | 36 |
+| `triggerElements` | fire, storm, arcane (Q6) |
+| `fuseMs` | 300 |
+| `blast.element` | fire (for reactions and keg chains) |
+| `blast.damage` | 60 |
+| `blast.radiusPx` | 72 |
+| `blast.knockbackPx` | 36 (wizards included) |
+| `blast.applies` | burning (enemy units and huts only) |
+| `blast.deathVariant` | blood (§12a override) |
+| `blast.canGib` | true |
+| `squadDamageMultiplier` | 0.5 (a wizard takes 30, Q2) |
+
+| Key (`KEG.…`) | Value |
+|---|---|
+| `id` | powder-keg |
+| `bodyRadiusPx` | 8 (§0) |
+| `footprintPx` | 16 (1 tile; solid from M7's collision layer, M5 Q1) |
+
+Data: `src/data/reactions.ts` (`REACTIONS.kaboom`, type `KaboomDef`), `src/data/structures.ts`
+(`KEG`, type `KegDef`). Older references to `kaboom.damage`, `kaboom.radiusPx` and
+`kaboom.knockbackPx` mean the `blast.` keys.
 
 - 60 damage kills any MVP enemy unit and takes 20% off a hut.
 - 30 to a wizard hurts (half a Stormcaller) but doesn't one-shot a healthy one. Two overlapping
@@ -347,6 +415,32 @@ takes no HP damage. It's triggered by any hit or area effect of element `fire` o
 **Verify.** Unit test: a keg chain of 3 spaced 64 px apart triggers in order, 300 ms apart.
 A wizard at 70 px takes 30; a wizard at 90 px takes nothing. Fireball, Lightning, Combust and Arcane Detonation each trigger a keg.
 Arrows and grunt hits don't.
+
+**M5 dev arena kegs** (`DEV_KEGS` and `DEV_KEG_PACK` in `src/data/devArena.ts`, M5 Q2). Offsets
+are from the leader's spawn, like `DEV_ENCOUNTER` (§3). Every keg is ≥ 112 px from the spawn.
+- **Keg chain:** 3 kegs at x −400, y −64/0/+64. Neighbours are 64 px apart (inside the 80 px keg
+  reach); the ends are 128 px apart (outside it). So one shot at an end keg fires all three in
+  order, 300 ms apart, never all at once.
+- **Keg pack:** 4 grunts in a 2×2 grid (x −448/−480, y −16/+16), 32 px apart, just west of the
+  chain. The nearest is 448 px from the leader, outside grunt aggro (220) of every wizard at spawn,
+  so the no-input D2 fight (§3) is unchanged. All 4 are within reach of the middle keg (centres
+  51–82 px, reach 84). It's a separate list from `DEV_ENCOUNTER` so the M4 sim's "every grunt
+  dies" check still counts only the north pack.
+- **Archer keg:** 1 keg at (+440, 0), 40 px behind the archer pair. Both archers are 47 px away,
+  inside the 82 px archer reach. Edge case (M5 T1 review n1): with the leader at exactly the 280 px
+  cast range from the keg, the archers hold 200 px from the leader, about 83.5 px from the keg, just
+  outside reach. One step closer and they're in. If the playtest shows misses at long range, pack
+  the archers to y ±16 (keep the keg where it is: the gap comes from cast range minus the archers'
+  `advanceAbovePx`).
+- *Feel:* walk west and the pack wakes and charges past the kegs: "Fireball the keg as they run by."
+  Walk east and the archers outshoot you: "Lightning the keg behind them." The chain ticking off
+  in three beats is the cascade read.
+- *How to verify:* (1) the M4 no-input sim still passes and the keg pack stays idle; (2) a Fireball
+  fired **from the spawn side (east)** at the south keg of the chain fires the three kegs at t,
+  t+300, t+600 ms and kills the pack (blood, most gib). Fired along the chain axis (from due south
+  or north), the contact point is within the middle keg's 52 px Fireball reach too, so two kegs
+  fuse on the same frame and the chain plays in 2 beats. That's correct, not a bug; (3) one Lightning on the archer keg kills both archers; (4) standing next to
+  a keg while it blows costs a wizard 30 HP and pushes them 36 px.
 
 ---
 
@@ -805,12 +899,15 @@ GDD assumes:
 ## 16. Playtest requests (for reviewer, M4–M7)
 
 1. Is the Grunt at 24 HP fodder (good) or paper (too fast)? Target: a pack of 6 takes 3–5 s to clear
-   with auto-attacks only.
+   with auto-attacks only (reactions off). With reactions on (M5+), the targets are in §3's no-input
+   table (clear 2.3–5.0 s, a grunt swing lands first) and request 12.
 2. Do archers feel like "push or snipe", or just annoying? Target: < 25% of squad damage taken
    comes from arrows in section 2. M4 check (dev encounter archers): push in with the squad. Does the
    archer visibly back off without firing below 120 px, and does pushing feel like the right answer?
 3. Meter: ready about once per section? Log the time to full for each section.
-4. Kaboom at ×0.5 squad damage: do players avoid kegs, or ignore the risk?
+4. Kaboom at ×0.5 squad damage: do players avoid kegs, or ignore the risk? Also (M5): when an auto
+   spark's Combust lights a keg near the squad (§7), does it feel fair ("I stood too close") or random
+   ("my squad blew itself up")? Log each case and whether a wizard was hit.
 5. Extraction radius 112 (approved): how often is someone left behind when the player *wasn't* careless?
    Target ≈ 0.
 6. Mission length: measure the full-run time for a fast and a cautious run. Target 6 / 9 min (Q19).
@@ -829,6 +926,12 @@ GDD assumes:
 11. Recruit names (§14, M7 results screen): does "<name> the Volunteered" listed under *Fell in
     battle* or *Left behind.* read as a joke or as a bug? If any tester misreads it as the death cause,
     swap the epithet in `src/data/names.ts`. Target: no tester confuses an epithet with a cause.
+12. Combust rhythm and weight (M5, Combust damage 3, §7): in the no-input dev fight with reactions
+    on, over 3 seeds × 30/60/144 fps, check §3's reactions-on targets: ≥ 1 grunt swing lands before
+    the clear in every run; clear 2.3–5.0 s; 1.0–3.0 Combusts/s for the squad (0.5–1.5 per pair).
+    Then in game: do the pops read as a rhythm rather than constant crackle, and does a 3-damage pop
+    still feel like a reaction worth setting up (the ember arcs and spread carry it)? If it reads
+    weak, that's the §7 watch item: the spread-delay rule goes to the CD as an M6 question.
 
 ---
 

@@ -7,6 +7,13 @@
  *   (already moved and clamped by the caller), the trail records the move, and every follower
  *   steers one step. Followers are clamped to `input.walkable`, the same feet rect as the leader.
  *
+ * Knockback (M5, GDD §8 Kaboom): a member with running pushes (`knockSquadMember`) is moved by this
+ * frame's knockback displacement only, clamped to `input.walkable`; its own movement is suspended
+ * until the last push ends. For the leader that means `input.leaderPosition` is ignored (input
+ * resumes on the frame after); for a follower, steering is skipped (follow resumes after). The
+ * trail records the pushed leader like any other move. Others still yield to and separate from a
+ * pushed member at its new position. Dead wizards are not in the squad, so they never move.
+ *
  * Steering, per follower k (velocities in px/s; S = squadMoveSpeed):
  * 1. Follow. The slot's own velocity (feed-forward, so a follower on a moving slot stays on it)
  *    plus a correction for the lag behind it: S × lag / arriveRadius inside the arrive radius,
@@ -31,6 +38,7 @@
  * would need path planning). Seen only in small rooms (about one view, 640×360).
  */
 import type { MovementTuning, Rect, TrailTuning, Vec2 } from '@core/types';
+import { stepKnockbacks } from '@core/combat/knockback';
 import { clampToRect } from '@core/math/movement';
 import { add, distance, length, normalize, scale, sub } from '@core/math/vec2';
 import { advanceTrail, pointAtDistance } from '@core/squad/trail';
@@ -60,16 +68,31 @@ export function stepSquad(
   const leader = state.members[0];
   if (input.dtMs <= 0 || !leader) return state;
   const dt = input.dtMs / 1000;
-  const trail = advanceTrail(state.trail, input.leaderPosition);
+  const leaderMove = knockedBack(leader, input) ?? {
+    position: input.leaderPosition,
+    knockbacks: leader.knockbacks,
+  };
+  const trail = advanceTrail(state.trail, leaderMove.position);
   const moved: SquadMember[] = [
     {
       id: leader.id,
-      position: input.leaderPosition,
-      velocity: scale(sub(input.leaderPosition, leader.position), 1 / dt),
+      position: leaderMove.position,
+      velocity: scale(sub(leaderMove.position, leader.position), 1 / dt),
+      knockbacks: leaderMove.knockbacks,
     },
   ];
   for (const [k, member] of state.members.entries()) {
     if (k === 0) continue;
+    const pushed = knockedBack(member, input);
+    if (pushed) {
+      moved.push({
+        id: member.id,
+        position: pushed.position,
+        velocity: scale(sub(pushed.position, member.position), 1 / dt),
+        knockbacks: pushed.knockbacks,
+      });
+      continue;
+    }
     const prevSlot = pointAtDistance(state.trail, slotDistancePx(tuning, k));
     const slot = pointAtDistance(trail, slotDistancePx(tuning, k));
     const slotAtRest = prevSlot.x === slot.x && prevSlot.y === slot.y;
@@ -86,7 +109,7 @@ export function stepSquad(
     const velocity = add(follow, separation(member.position, ahead, dt, tuning, movement));
 
     if (slotAtRest && length(velocity) <= restSpeed(tuning, movement)) {
-      moved.push({ id: member.id, position: member.position, velocity: ZERO });
+      moved.push({ ...member, velocity: ZERO });
       continue;
     }
     let position = clampToRect(add(member.position, scale(velocity, dt)), input.walkable, 0);
@@ -105,9 +128,23 @@ export function stepSquad(
       id: member.id,
       position,
       velocity: scale(sub(position, member.position), 1 / dt),
+      knockbacks: member.knockbacks,
     });
   }
   return { members: moved, trail };
+}
+
+/** This frame's knockback move for a member with running pushes, or null when it has none. */
+function knockedBack(
+  member: SquadMember,
+  input: SquadStepInput,
+): Pick<SquadMember, 'position' | 'knockbacks'> | null {
+  if (member.knockbacks.length === 0) return null;
+  const step = stepKnockbacks(member.knockbacks, input.dtMs);
+  return {
+    position: clampToRect(add(member.position, step.displacement), input.walkable, 0),
+    knockbacks: step.active,
+  };
 }
 
 /** Speed at or below which a follower on a resting slot stops: the arrive speed at the stop radius. */

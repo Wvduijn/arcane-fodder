@@ -11,6 +11,11 @@ export const Depth = {
    * feet, partly under the marker's ellipse). A wizard behind may partly hide them (CD, M4 T12).
    */
   GroundBars: 6,
+  /**
+   * Engine-drawn ground decals above the marker and bars, below every unit: the keg fuse ring,
+   * the Lightning reticle and its ground flash (readability.md §5a).
+   */
+  GroundFx: 7,
   /** Units, the leader included, sort by feet y inside [Units, Units + 1): see {@link unitDepth}. */
   Units: 10,
   /** Goblin health bars and the Burning overlay, above every unit (readability.md §4a: corpses below). */

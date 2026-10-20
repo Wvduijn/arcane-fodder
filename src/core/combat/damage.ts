@@ -11,7 +11,9 @@
  *   `landed: false`, nothing dealt (D4).
  * - `applyEventHits(world, targets, hit, gibs)`: one area event on many units, resolved in ascending
  *   EntityId order (GDD §0). At most `gibs.maxGibbedPerEvent` of its kills gib, lowest ids first;
- *   the rest die with their normal variant (GDD §12a).
+ *   the rest die with their normal variant (GDD §12a). `hit` may be a function of the living
+ *   target, for events whose damage differs per unit (Kaboom on wizards, M5); the gib cap still
+ *   counts the whole event. Area code builds on this through `resolveAreaEvent` (area.ts).
  *
  * Statuses and knockback are not applied here: the caller applies `hit.applies` (status.ts) and
  * `knockbackPx` (knockback.ts) only when `landed` and not `killed`.
@@ -53,14 +55,14 @@ export function applyHit(
 export function applyEventHits(
   world: CombatWorld,
   targets: readonly EntityId[],
-  hit: Hit,
+  hit: Hit | ((unit: UnitCombatState) => Hit),
   gibs: GibTuning,
 ): HitResult[] {
   let gibbed = 0;
   const ordered = [...new Set(targets)].sort((a, b) => a - b);
   return ordered.map((target) =>
-    resolve(world, target, hit, (unit) => {
-      if (gibbed >= gibs.maxGibbedPerEvent || !isGibKill(hit, unit.team, unit.maxHp, gibs)) {
+    resolve(world, target, hit, (unit, unitHit) => {
+      if (gibbed >= gibs.maxGibbedPerEvent || !isGibKill(unitHit, unit.team, unit.maxHp, gibs)) {
         return false;
       }
       gibbed++;
@@ -72,11 +74,12 @@ export function applyEventHits(
 function resolve(
   world: CombatWorld,
   target: EntityId,
-  hit: Hit,
-  gibsOnKill: (unit: UnitCombatState) => boolean,
+  hitOrFn: Hit | ((unit: UnitCombatState) => Hit),
+  gibsOnKill: (unit: UnitCombatState, hit: Hit) => boolean,
 ): HitResult {
   const unit = world.get(target);
   if (!unit?.alive) return { target, dealt: 0, landed: false, killed: false };
+  const hit = typeof hitOrFn === 'function' ? hitOrFn(unit) : hitOrFn;
   const dealt = Math.min(unit.hp, Math.max(0, hit.damage));
   const hp = unit.hp - dealt;
   if (hp > 0) {
@@ -84,7 +87,7 @@ function resolve(
     return { target, dealt, landed: true, killed: false };
   }
   const { team } = unit;
-  const gibbed = gibsOnKill(unit);
+  const gibbed = gibsOnKill(unit, hit);
   world.markDead(target);
   const death: DeathRecord = {
     id: target,
