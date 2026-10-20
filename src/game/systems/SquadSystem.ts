@@ -1,5 +1,6 @@
 import type Phaser from 'phaser';
 import type {
+  CombatTuning,
   DeathCause,
   DeathVariantId,
   EntityId,
@@ -17,9 +18,11 @@ import { stepSquad } from '@core/squad/follow';
 import {
   createSquad,
   killSquadMembers,
+  knockSquadMember,
   type SquadMember,
   type SquadState,
 } from '@core/squad/squad';
+import { COMBAT } from '@data/combat';
 import { DEV_SQUAD } from '@data/devArena';
 import { MOVEMENT } from '@data/movement';
 import { RECRUIT_NAMES } from '@data/names';
@@ -49,6 +52,7 @@ export interface SquadSystemOptions {
   readonly nameSeed?: number;
   readonly trail?: TrailTuning;
   readonly movement?: MovementTuning;
+  readonly combat?: CombatTuning;
 }
 
 /** One wizard death as the killer resolved it. Debug kills: `combat`, `blood`, not gibbed. */
@@ -80,6 +84,7 @@ export class SquadSystem implements System, LeaderSource, UnitLookup {
   private readonly fallen = new Map<EntityId, Vec2>();
   private readonly trail: TrailTuning;
   private readonly movement: MovementTuning;
+  private readonly combat: CombatTuning;
 
   constructor(
     scene: Phaser.Scene,
@@ -93,6 +98,7 @@ export class SquadSystem implements System, LeaderSource, UnitLookup {
     const size = classes.length;
     this.trail = options.trail ?? TRAIL;
     this.movement = options.movement ?? MOVEMENT;
+    this.combat = options.combat ?? COMBAT;
 
     const body = this.movement.wizardBodyRadiusPx;
     this.walkable = insetRect(world, {
@@ -208,6 +214,30 @@ export class SquadSystem implements System, LeaderSource, UnitLookup {
       this.bus.emit('unit:died', { id, team: 'squad', cause, deathVariant, gibbed });
     }
     if (result.leaderChanged) this.bus.emit('squad:leader-changed', { id: result.newLeader });
+  }
+
+  /**
+   * Starts an eased push on a living wizard, leader included (Kaboom, GDD §8), over
+   * `knockbackMs`. Core's `stepSquad` plays it out: input or follow resume when it ends (M5 Q4).
+   * No-op for dead or unknown ids.
+   */
+  knockBack(id: EntityId, direction: Vec2, distancePx: number): void {
+    this.squad = knockSquadMember(this.squad, id, direction, distancePx, this.combat.knockbackMs);
+  }
+
+  /**
+   * Debug T only (M5 Q5): the living squad stands in single file at `leaderPosition` (clamped to
+   * walkable), followers toward `behind`, as at spawn. Ids, order and HP are unchanged; running
+   * knockbacks are dropped.
+   */
+  teleport(leaderPosition: Vec2, behind: Vec2): void {
+    const ids = this.squad.members.map((member) => member.id);
+    if (ids.length === 0) return;
+    this.squad = createSquad(
+      { ids, leaderPosition: clampToRect(leaderPosition, this.walkable, 0), behind },
+      this.trail,
+    );
+    this.syncSprites();
   }
 
   destroy(): void {

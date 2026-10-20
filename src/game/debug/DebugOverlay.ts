@@ -1,22 +1,30 @@
 import Phaser from 'phaser';
-import type { EntityId, MageClassId, StatusId, Team, Vec2, Rect } from '@core/types';
+import type { EntityId, MageClassId, SpellId, StatusId, Team, Vec2, Rect } from '@core/types';
 import type { CombatWorld } from '@core/combat/world';
 import { distance } from '@core/math/vec2';
 import { attemptSeed } from '@core/names/recruitNames';
 import { selectTarget } from '@core/targeting/selectTarget';
+import { clampAim } from '@core/spells/caster';
 import { createRng, type Rng } from '@core/rng/rng';
 import { slotPosition } from '@core/squad/squad';
 import { CLASSES } from '@data/classes';
 import { DEV_SQUAD } from '@data/devArena';
 import { ENEMIES } from '@data/enemies';
 import { MOVEMENT } from '@data/movement';
+import { REACTIONS } from '@data/reactions';
+import { SPELL_TUNING, SPELLS } from '@data/spells';
+import { KEG } from '@data/structures';
 import type { EventBus, GameEventListener } from '../bus/EventBus';
 import { Depth } from '../depths';
 import type { LeaderMarker } from '../entities/LeaderMarker';
+import type { FlashBudget } from '../fx/FlashBudget';
 import type { PoolStats } from '../fx/ImagePool';
+import type { SpellSlotState } from '../hud/HudModel';
 import type { GameInput } from '../input/GameInput';
 import type { CombatCounters, CombatSystem } from '../systems/CombatSystem';
 import type { EnemyAiSystem, EnemyDebug } from '../systems/EnemyAiSystem';
+import type { KegDebug, KegSystem } from '../systems/KegSystem';
+import type { SpellDebug, SpellSystem } from '../systems/SpellSystem';
 import type { SquadSystem } from '../systems/SquadSystem';
 import type { StatusSystem } from '../systems/StatusSystem';
 import type { System } from '../systems/System';
@@ -24,6 +32,9 @@ import type { TargetingSystem } from '../systems/TargetingSystem';
 import type { BurningOverlayView } from '../views/BurningOverlayView';
 import type { DeathPuffView } from '../views/DeathPuffView';
 import type { HitFlashView } from '../views/HitFlashView';
+import type { ReactionFxView } from '../views/ReactionFxView';
+import type { SpellFxView } from '../views/SpellFxView';
+import { SceneKeys } from '../scenes/keys';
 import type { CameraController } from '../world/CameraController';
 
 /** Read-only view of the debug state, for the overlay and for automated playtests. */
@@ -46,6 +57,14 @@ export interface DebugSnapshot {
   readonly leader: Vec2 | null;
   readonly squad: SquadDebugSnapshot;
   readonly combat: CombatDebugSnapshot;
+  readonly spells: SpellDebugSnapshot;
+  /** Every keg this run (spent ones included), in spawn order. */
+  readonly kegs: readonly KegDebug[];
+  readonly reactions: ReactionDebugSnapshot;
+  /** M5 FX pools (spell FX, reaction FX, kegs): live/created must not grow across restarts (D6). */
+  readonly fxPools: Readonly<Record<string, PoolStats>>;
+  /** Debug T: index into the corner cycle (0 = not used yet) and where the squad was last put. */
+  readonly teleport: { readonly index: number; readonly leader: Vec2 | null };
   readonly marker: LeaderMarker['debugState'];
   readonly moveVector: Vec2;
   readonly aimWorld: Vec2 | null;
@@ -64,7 +83,57 @@ export interface DebugSnapshot {
     readonly busListeners: number;
     /** Game objects on the scene's display list (ground, units, pooled FX, marker, overlay). */
     readonly displayObjects: number;
+    /** HudScene running (exactly one per run) and its display list size (D6). */
+    readonly hudActive: boolean;
+    readonly hudDisplayObjects: number;
   };
+}
+
+export interface SpellDebugSnapshot {
+  /** As the HUD reads them: derived availability plus cooldowns. */
+  readonly slots: readonly SpellSlotState[];
+  /** Strikes and flights on their way, cast order. */
+  readonly pending: readonly {
+    readonly id: EntityId;
+    readonly spell: SpellId;
+    readonly kind: 'strike' | 'projectile';
+    /** Clamped aim point. */
+    readonly at: Vec2;
+    /** Strikes: telegraph left. */
+    readonly remainingMs: number | null;
+    /** Flights: where the Fireball is now (feet level). */
+    readonly position: Vec2 | null;
+  }[];
+  readonly maxCastRangePx: number;
+  /** aimWorld clamped to the cast range from the leader: where a cast now would land (D2). */
+  readonly clampedAim: Vec2 | null;
+  readonly lastCast: SpellDebug['lastCast'];
+  readonly lastImpact: SpellDebug['lastImpact'];
+  /** Distance from the last impact to the last cast's clamped aim (D2: ≤ 2 px, Fireball contact excepted). */
+  readonly lastImpactErrorPx: number | null;
+  readonly casts: number;
+  readonly denied: number;
+  /** `spell:lost` emitted this run, in order (each spell at most once). */
+  readonly lost: readonly SpellId[];
+}
+
+export interface ReactionDebugSnapshot {
+  readonly combusts: number;
+  readonly kabooms: number;
+  readonly kegsTriggered: number;
+  /** Bus events seen this run. */
+  readonly events: {
+    readonly spellCast: number;
+    readonly spellImpact: number;
+    readonly spellLost: number;
+    readonly spellDenied: number;
+    readonly combust: number;
+    readonly kaboom: number;
+    readonly fuseStarted: number;
+  };
+  /** §1.9 flash budget: impact flashes drawn and skipped. */
+  readonly flashes: { readonly granted: number; readonly refused: number };
+  readonly shakes: number;
 }
 
 export interface UnitDebugSnapshot {
@@ -185,6 +254,11 @@ export interface DebugSources {
   readonly hitFlash: HitFlashView;
   readonly burning: BurningOverlayView;
   readonly puffs: DeathPuffView;
+  readonly spells: SpellSystem;
+  readonly kegs: KegSystem;
+  readonly spellFx: SpellFxView;
+  readonly reactionFx: ReactionFxView;
+  readonly flashBudget: FlashBudget;
 }
 
 export interface DebugOptions {
@@ -192,9 +266,15 @@ export interface DebugOptions {
   readonly debugUrl: boolean;
   /** Debug-only scene restart, used to prove nothing leaks or doubles. */
   readonly onRestart: () => void;
-  /** Debug-only: despawn every goblin and spawn the dev encounter again. */
+  /** Debug-only: despawn every goblin and keg and spawn the dev encounter and kegs again. */
   readonly onRespawnEncounter: () => void;
 }
+
+/**
+ * Debug T (M5 Q5): corners of the walkable area, inset so the camera is clamped at each one (inset
+ * < half the view) and the single file fits; followers trail away from the map edge.
+ */
+const TELEPORT = { insetPx: 96 } as const;
 
 const DEBUG_QUERY_PARAM = 'debug';
 const ToggleKey = Phaser.Input.Keyboard.KeyCodes.BACKTICK;
@@ -203,6 +283,7 @@ const KillLeaderKey = Phaser.Input.Keyboard.KeyCodes.K;
 const KillFollowerKey = Phaser.Input.Keyboard.KeyCodes.L;
 const RespawnKey = Phaser.Input.Keyboard.KeyCodes.G;
 const BurnKey = Phaser.Input.Keyboard.KeyCodes.B;
+const TeleportKey = Phaser.Input.Keyboard.KeyCodes.T;
 /** Mixed into the run's name seed, so the L key's picks don't mirror the name draws. */
 const DEBUG_RNG_SALT = 0x5eed_dead;
 
@@ -247,6 +328,12 @@ const Colors = {
   enemyBody: 0xff8c40,
   aim: 0xff5050,
   projectile: 0xffffff,
+  castRange: 0x6fe7ff,
+  clampedAim: 0x6fe7ff,
+  strike: 0x6fe7ff,
+  fireball: 0xffab2e,
+  kegBody: 0xf4ecdc,
+  kegBlast: 0xc42a2a,
 } as const;
 const SEPARATION_ALPHA = 0.35;
 const RANGE_ALPHA = 0.3;
@@ -282,6 +369,18 @@ export class DebugOverlay implements System {
   private readonly killFollowerKey: Phaser.Input.Keyboard.Key;
   private readonly respawnKey: Phaser.Input.Keyboard.Key;
   private readonly burnKey: Phaser.Input.Keyboard.Key;
+  private readonly teleportKey: Phaser.Input.Keyboard.Key;
+  private teleportIndex = 0;
+  private teleportLeader: Vec2 | null = null;
+  private reactionEvents: ReactionDebugSnapshot['events'] = {
+    spellCast: 0,
+    spellImpact: 0,
+    spellLost: 0,
+    spellDenied: 0,
+    combust: 0,
+    kaboom: 0,
+    fuseStarted: 0,
+  };
   /** One state label per goblin, made on first sight and destroyed when it is gone. */
   private readonly enemyLabels = new Map<EntityId, Phaser.GameObjects.Text>();
   private readonly diedIds = new Set<EntityId>();
@@ -330,6 +429,12 @@ export class DebugOverlay implements System {
     sources.bus.on('unit:damaged', this.handleDamaged);
     sources.bus.on('status:applied', this.handleStatusApplied);
     sources.bus.on('status:expired', this.handleStatusExpired);
+    sources.bus.on('spell:cast', this.handleSpellCast);
+    sources.bus.on('spell:impact', this.handleSpellImpact);
+    sources.bus.on('spell:lost', this.handleSpellLost);
+    sources.bus.on('spell:denied', this.handleSpellDenied);
+    sources.bus.on('reaction:triggered', this.handleReaction);
+    sources.bus.on('keg:fuse-started', this.handleFuseStarted);
 
     const keyboard = this.keyboard;
     this.toggleKey = keyboard.addKey(ToggleKey).on(Phaser.Input.Keyboard.Events.DOWN, this.toggle);
@@ -346,6 +451,9 @@ export class DebugOverlay implements System {
       .addKey(RespawnKey)
       .on(Phaser.Input.Keyboard.Events.DOWN, this.respawnEncounter);
     this.burnKey = keyboard.addKey(BurnKey).on(Phaser.Input.Keyboard.Events.DOWN, this.burnNearest);
+    this.teleportKey = keyboard
+      .addKey(TeleportKey)
+      .on(Phaser.Input.Keyboard.Events.DOWN, this.teleportSquad);
 
     this.hook = options.debugUrl ? { snapshot: () => this.snapshot() } : null;
     if (this.hook) window.__ARCANE_DEBUG__ = this.hook;
@@ -375,8 +483,14 @@ export class DebugOverlay implements System {
           `#${String(e.id).padEnd(3)} ${e.enemy.replace('goblin-', '').padEnd(6)} ${e.state.padEnd(10)} ${formatSeconds(e.timeInStateMs)}  ${this.unitLine(s.combat, e.id)}  cd ${formatSeconds(e.cooldownMs)} ${formatTarget(e.target)}${e.knockbacks > 0 ? '  knock' : ''}`,
       ),
       `proj    ${String(s.combat.projectiles.length)}  pools proj ${formatPool(s.combat.pools.projectiles)} puff ${formatPool(s.combat.pools.puffs)} burn ${formatPool(s.combat.pools.burning)}`,
+      ...this.spellLines(s),
+      `kegs    ${s.kegs.map((k) => `#${String(k.id)} ${k.phase}${k.phase === 'fuse' ? ` ${formatSeconds(k.fuseRemainingMs)}${k.ringShown ? ' ring' : ''}` : ''}`).join('  ') || '-'}`,
+      `react   combust ${String(s.reactions.combusts)} kaboom ${String(s.reactions.kabooms)} kegs lit ${String(s.reactions.kegsTriggered)}  flashes ${String(s.reactions.flashes.granted)}/-${String(s.reactions.flashes.refused)} shakes ${String(s.reactions.shakes)}`,
+      `fx      ${Object.entries(s.fxPools)
+        .map(([name, pool]) => `${name} ${formatPool(pool)}`)
+        .join(' ')}`,
       `events  dmg ${String(s.combat.events.damaged)} died ${String(s.combat.events.died)} burn +${String(s.combat.events.statusApplied)}/-${String(s.combat.events.statusExpired)} ticks ${String(s.combat.counters.statusTicks)} whiffs ${String(s.combat.counters.whiffs)}  after death ${String(s.combat.events.damagedAfterDeath + s.combat.events.statusAfterDeath)}`,
-      '[`] hide  [Backspace] restart  [K] kill leader  [L] kill follower  [G] respawn goblins  [B] burn nearest goblin',
+      '[`] hide  [Backspace] restart  [K] kill leader  [L] kill follower  [G] respawn goblins  [B] burn nearest goblin  [T] corner',
     ];
     const content = lines.join('\n');
     if (this.text.text !== content) this.text.setText(content);
@@ -429,6 +543,7 @@ export class DebugOverlay implements System {
       FOLLOW_DOT_RADIUS_PX,
     );
     this.drawCombat(g, s);
+    this.drawSpells(g, s);
     if (s.aimWorld) this.drawCrosshair(g, s.aimWorld);
   }
 
@@ -455,6 +570,11 @@ export class DebugOverlay implements System {
       leader: leader ? { ...leader.position } : null,
       squad: this.squadSnapshot(),
       combat: this.combatSnapshot(),
+      spells: this.spellSnapshot(),
+      kegs: this.sources.kegs.debugKegs,
+      reactions: this.reactionSnapshot(),
+      fxPools: this.fxPools(),
+      teleport: { index: this.teleportIndex, leader: this.teleportLeader },
       marker: this.sources.marker.debugState,
       moveVector: { ...input.moveVector },
       aimWorld: input.aimWorld ? { ...input.aimWorld } : null,
@@ -472,6 +592,8 @@ export class DebugOverlay implements System {
         sceneShutdownListeners: this.scene.events.listenerCount(Phaser.Scenes.Events.SHUTDOWN),
         busListeners: this.sources.bus.listenerCount(),
         displayObjects: this.scene.children.length,
+        hudActive: this.scene.scene.isActive(SceneKeys.Hud),
+        hudDisplayObjects: this.hudDisplayObjects(),
       },
     };
   }
@@ -485,11 +607,18 @@ export class DebugOverlay implements System {
     this.killFollowerKey.off(Phaser.Input.Keyboard.Events.DOWN, this.killFollower);
     this.respawnKey.off(Phaser.Input.Keyboard.Events.DOWN, this.respawnEncounter);
     this.burnKey.off(Phaser.Input.Keyboard.Events.DOWN, this.burnNearest);
+    this.teleportKey.off(Phaser.Input.Keyboard.Events.DOWN, this.teleportSquad);
     this.sources.bus.off('unit:died', this.handleUnitDied);
     this.sources.bus.off('squad:leader-changed', this.handleLeaderChanged);
     this.sources.bus.off('unit:damaged', this.handleDamaged);
     this.sources.bus.off('status:applied', this.handleStatusApplied);
     this.sources.bus.off('status:expired', this.handleStatusExpired);
+    this.sources.bus.off('spell:cast', this.handleSpellCast);
+    this.sources.bus.off('spell:impact', this.handleSpellImpact);
+    this.sources.bus.off('spell:lost', this.handleSpellLost);
+    this.sources.bus.off('spell:denied', this.handleSpellDenied);
+    this.sources.bus.off('reaction:triggered', this.handleReaction);
+    this.sources.bus.off('keg:fuse-started', this.handleFuseStarted);
     this.text.destroy();
     this.markers.destroy();
     for (const label of this.labels) label.destroy();
@@ -578,6 +707,124 @@ export class DebugOverlay implements System {
       flashing: hitFlash.flashing,
       respawns: this.respawns,
     };
+  }
+
+  private spellSnapshot(): SpellDebugSnapshot {
+    const { spells, squad, input } = this.sources;
+    const debug = spells.debugState;
+    const leader = squad.leader;
+    const aim = input.aimWorld;
+    const { lastCast, lastImpact } = debug;
+    return {
+      slots: spells.slots,
+      pending: spells.pending.map((p) => ({
+        id: p.id,
+        spell: p.spell,
+        kind: p.kind,
+        at: { ...p.at },
+        remainingMs: p.kind === 'strike' ? p.remainingMs : null,
+        position: p.kind === 'projectile' ? { ...p.projectile.position } : null,
+      })),
+      maxCastRangePx: SPELL_TUNING.maxCastRangePx,
+      clampedAim:
+        leader && aim ? clampAim(leader.position, aim, SPELL_TUNING.maxCastRangePx) : null,
+      lastCast,
+      lastImpact,
+      lastImpactErrorPx: lastCast && lastImpact ? distance(lastCast.at, lastImpact.at) : null,
+      casts: debug.casts,
+      denied: debug.denied,
+      lost: debug.lost,
+    };
+  }
+
+  private reactionSnapshot(): ReactionDebugSnapshot {
+    const { combat, flashBudget, reactionFx } = this.sources;
+    const { combusts, kabooms, kegsTriggered } = combat.stats;
+    return {
+      combusts,
+      kabooms,
+      kegsTriggered,
+      events: { ...this.reactionEvents },
+      flashes: flashBudget.stats,
+      shakes: reactionFx.shakeCount,
+    };
+  }
+
+  private fxPools(): Readonly<Record<string, PoolStats>> {
+    const { spellFx, reactionFx, kegs } = this.sources;
+    return { ...spellFx.poolStats, ...reactionFx.poolStats, ...kegs.poolStats };
+  }
+
+  private hudDisplayObjects(): number {
+    const hud = this.scene.scene.get(SceneKeys.Hud);
+    return this.scene.scene.isActive(SceneKeys.Hud) ? hud.children.length : 0;
+  }
+
+  /** Slots with cooldowns, pending strikes/flights, the last cast and impact (D2). */
+  private spellLines(s: DebugSnapshot): string[] {
+    const sp = s.spells;
+    const slots = sp.slots
+      .map(
+        (slot) =>
+          `${String(slot.slot)} ${slot.spell} ${!slot.available ? 'LOST' : slot.cooldownRemainingMs > 0 ? `cd ${formatSeconds(slot.cooldownRemainingMs)}` : 'ready'}`,
+      )
+      .join('  ');
+    const pending = sp.pending
+      .map((p) =>
+        p.kind === 'strike'
+          ? `${p.spell} ${String(Math.ceil(p.remainingMs ?? 0))}ms`
+          : `${p.spell} @${p.position ? formatVec(p.position, 0) : '-'}`,
+      )
+      .join(', ');
+    const cast = sp.lastCast ? `${sp.lastCast.spell} at ${formatVec(sp.lastCast.at)}` : '-';
+    const impact = sp.lastImpact
+      ? `${formatVec(sp.lastImpact.at)} err ${sp.lastImpactErrorPx?.toFixed(2) ?? '-'}`
+      : '-';
+    return [
+      `spells  ${slots}  casts ${String(sp.casts)} denied ${String(sp.denied)} lost ${sp.lost.join(',') || '-'}`,
+      `cast    ${cast}  impact ${impact}  pending ${pending || '-'}  clamped ${sp.clampedAim ? formatVec(sp.clampedAim) : '-'}`,
+    ];
+  }
+
+  /** Cast range and clamped aim, strike hit circles, Fireball hit circles, keg bodies and blast rings. */
+  private drawSpells(g: Phaser.GameObjects.Graphics, s: DebugSnapshot): void {
+    const { spells } = s;
+    if (s.leader) {
+      g.lineStyle(MARKER_LINE_PX, Colors.castRange, RANGE_ALPHA).strokeCircle(
+        s.leader.x,
+        s.leader.y,
+        spells.maxCastRangePx,
+      );
+    }
+    if (spells.clampedAim) {
+      const a = spells.clampedAim;
+      g.lineStyle(MARKER_LINE_PX, Colors.clampedAim)
+        .lineBetween(a.x - AIM_HALF_PX, a.y - AIM_HALF_PX, a.x + AIM_HALF_PX, a.y + AIM_HALF_PX)
+        .lineBetween(a.x - AIM_HALF_PX, a.y + AIM_HALF_PX, a.x + AIM_HALF_PX, a.y - AIM_HALF_PX);
+    }
+    for (const p of spells.pending) {
+      if (p.kind === 'strike') {
+        g.lineStyle(MARKER_LINE_PX, Colors.strike).strokeCircle(
+          p.at.x,
+          p.at.y,
+          SPELLS[p.spell].radiusPx,
+        );
+      } else if (p.position) {
+        const { delivery } = SPELLS[p.spell];
+        const r = delivery.kind === 'projectile' ? delivery.projectileRadiusPx : 0;
+        g.lineStyle(MARKER_LINE_PX, Colors.fireball).strokeCircle(p.position.x, p.position.y, r);
+      }
+    }
+    for (const keg of s.kegs) {
+      if (keg.phase === 'spent') continue;
+      const { x, y } = keg.position;
+      g.lineStyle(MARKER_LINE_PX, Colors.kegBody).strokeCircle(x, y, KEG.bodyRadiusPx);
+      g.lineStyle(
+        MARKER_LINE_PX,
+        Colors.kegBlast,
+        keg.phase === 'fuse' ? 1 : RANGE_ALPHA,
+      ).strokeCircle(x, y, REACTIONS.kaboom.blast.radiusPx);
+    }
   }
 
   /** "hp 18/24 burn 2.5s" for one unit. */
@@ -728,6 +975,75 @@ export class DebugOverlay implements System {
     });
     const target = selectTarget(leader.position, Number.POSITIVE_INFINITY, candidates);
     if (target !== null) combat.applyStatus(target, 'burning', null);
+  };
+
+  /**
+   * Debug T (M5 Q5): the whole squad to the next walkable corner (inset so the camera clamps), in
+   * the order top-left, top-right, bottom-right, bottom-left, then back to the arena centre.
+   */
+  private readonly teleportSquad = (
+    _key: Phaser.Input.Keyboard.Key,
+    event: KeyboardEvent,
+  ): void => {
+    if (!this.visible || event.repeat) return;
+    const { squad, world } = this.sources;
+    const w = squad.walkable;
+    const inset = TELEPORT.insetPx;
+    const left = w.x + inset;
+    const right = w.x + w.width - inset;
+    const top = w.y + inset;
+    const bottom = w.y + w.height - inset;
+    const down = { x: 0, y: 1 };
+    const up = { x: 0, y: -1 };
+    const stops: readonly (readonly [Vec2, Vec2])[] = [
+      [{ x: left, y: top }, down],
+      [{ x: right, y: top }, down],
+      [{ x: right, y: bottom }, up],
+      [{ x: left, y: bottom }, up],
+      [{ x: world.x + world.width / 2, y: world.y + world.height / 2 }, down],
+    ];
+    const stop = stops[this.teleportIndex % stops.length];
+    this.teleportIndex++;
+    if (!stop) return;
+    squad.teleport(stop[0], stop[1]);
+    this.teleportLeader = squad.leader ? { ...squad.leader.position } : null;
+  };
+
+  private readonly handleSpellCast: GameEventListener<'spell:cast'> = () => {
+    this.reactionEvents = { ...this.reactionEvents, spellCast: this.reactionEvents.spellCast + 1 };
+  };
+
+  private readonly handleSpellImpact: GameEventListener<'spell:impact'> = () => {
+    this.reactionEvents = {
+      ...this.reactionEvents,
+      spellImpact: this.reactionEvents.spellImpact + 1,
+    };
+  };
+
+  private readonly handleSpellLost: GameEventListener<'spell:lost'> = () => {
+    this.reactionEvents = { ...this.reactionEvents, spellLost: this.reactionEvents.spellLost + 1 };
+  };
+
+  private readonly handleSpellDenied: GameEventListener<'spell:denied'> = () => {
+    this.reactionEvents = {
+      ...this.reactionEvents,
+      spellDenied: this.reactionEvents.spellDenied + 1,
+    };
+  };
+
+  private readonly handleReaction: GameEventListener<'reaction:triggered'> = ({ reaction }) => {
+    this.reactionEvents = {
+      ...this.reactionEvents,
+      combust: this.reactionEvents.combust + (reaction === 'combust' ? 1 : 0),
+      kaboom: this.reactionEvents.kaboom + (reaction === 'kaboom' ? 1 : 0),
+    };
+  };
+
+  private readonly handleFuseStarted: GameEventListener<'keg:fuse-started'> = () => {
+    this.reactionEvents = {
+      ...this.reactionEvents,
+      fuseStarted: this.reactionEvents.fuseStarted + 1,
+    };
   };
 
   private readonly handleUnitDied: GameEventListener<'unit:died'> = ({ id, team }) => {

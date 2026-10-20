@@ -4,15 +4,30 @@
  *   squad (leader holds still) → enemy brains and bodies → wizard targeting and fire, enemy attacks
  *   → projectiles and hits → Burning ticks → the frame's deaths as one ascending-id batch (as the
  *   scene's CombatSystem flushes them) → succession.
+ * M5: every hit goes through reactions.ts (`resolveUnitHit`), so sparks on burning goblins Combust
+ * (D4), and the dev kegs stand in the arena to prove autos, arrows and melee never light them.
+ * `reactions: false` runs the M4 rules (plain `applyHit`, no Combust) for the M4 regression tests:
+ * with Combust the pack dies before any grunt reaches the squad, so M4's melee scenarios need it.
  * Every frame it checks the D4 invariants and counts violations instead of throwing, so a test can
  * report them all.
  */
-import type { DevEncounterSpawn, EnemyId, EntityId, Rect, Vec2 } from '@core/types';
+import type {
+  CombustDef,
+  DevEncounterSpawn,
+  EnemyId,
+  EntityId,
+  MageClassId,
+  ProjectileAttackDef,
+  Rect,
+  Vec2,
+} from '@core/types';
 import type { WizardView } from '@core/ai/goblin';
 import { createAutoAttack, stepAutoAttack, type AutoAttackState } from '@core/combat/autoAttack';
-import { applyHit, type HitResult } from '@core/combat/damage';
+import type { UnitPosition } from '@core/combat/area';
+import { applyHit, type Hit, type HitResult } from '@core/combat/damage';
 import { resolveFrameDeaths, type DeathRecord } from '@core/combat/death';
 import { createProjectile, stepProjectile, type Projectile } from '@core/combat/projectile';
+import { resolveUnitHit, type ReactionContext, type ReactionResults } from '@core/combat/reactions';
 import { applyStatus, stepStatuses } from '@core/combat/status';
 import { CombatWorld } from '@core/combat/world';
 import {
@@ -28,13 +43,16 @@ import { add } from '@core/math/vec2';
 import { createRng } from '@core/rng/rng';
 import { stepSquad } from '@core/squad/follow';
 import { createSquad, killSquadMembers, type SquadState } from '@core/squad/squad';
+import { createKeg, kegBodies, triggerKeg, type KegState } from '@core/structures/keg';
 import type { TargetCandidate } from '@core/targeting/selectTarget';
 import { CLASSES } from '@data/classes';
 import { COMBAT, GIBS } from '@data/combat';
-import { DEV_ARENA, DEV_ENCOUNTER, DEV_SQUAD } from '@data/devArena';
+import { DEV_ARENA, DEV_ENCOUNTER, DEV_KEGS, DEV_SQUAD } from '@data/devArena';
 import { ENEMIES } from '@data/enemies';
 import { MOVEMENT } from '@data/movement';
+import { REACTIONS } from '@data/reactions';
 import { STATUSES } from '@data/statuses';
+import { KEG } from '@data/structures';
 import { TRAIL } from '@data/trail';
 
 export interface EncounterOptions {
@@ -48,6 +66,13 @@ export interface EncounterOptions {
   readonly encounter?: readonly DevEncounterSpawn[];
   /** Per-recruit maxHp overrides, leader first (forces losses to exercise succession). */
   readonly wizardMaxHp?: readonly (number | undefined)[];
+  /** Spawned but not part of the D2 group (DEV_KEG_PACK): must stay out of the fight. */
+  readonly bystanders?: readonly DevEncounterSpawn[];
+  /** Default true (M5). False: M4 rules, hits through `applyHit`, no reactions. */
+  readonly reactions?: boolean;
+  /** Balance sweeps only: replaces REACTIONS.combust / a class's auto-attack in this run. */
+  readonly combust?: CombustDef;
+  readonly attacks?: Partial<Record<MageClassId, ProjectileAttackDef>>;
 }
 
 export interface EncounterResult {
@@ -67,15 +92,25 @@ export interface EncounterResult {
   readonly burningTicks: number;
   readonly shotsFired: number;
   readonly meleeSwings: number;
+  /** Swings whose target was still in range at the end of the wind-up and took the hit. */
+  readonly swingsLanded: number;
+  /** Time of the first grunt swing, or null. */
+  readonly firstSwingMs: number | null;
+  /** Time of the first swing that landed on a wizard, or null (GDD §3 no-input targets). */
+  readonly firstLandedSwingMs: number | null;
   /** Leader deaths that promoted a survivor (GDD §2). */
   readonly leaderChanges: number;
+  /** Combust reactions (M5 D4). */
+  readonly combusts: number;
+  /** Kegs lit during the fight (none expected: only spells and reactions light them). */
+  readonly kegsLit: number;
   /** D4: every entry is a broken invariant (dead unit moved, acted, ticked, was hit or damaged). */
   readonly violations: readonly string[];
 }
 
 interface Wizard {
   readonly id: EntityId;
-  readonly attack: (typeof CLASSES)[keyof typeof CLASSES]['attack'];
+  readonly attack: ProjectileAttackDef;
   auto: AutoAttackState;
 }
 
@@ -97,7 +132,7 @@ export function runEncounter(options: EncounterOptions): EncounterResult {
     const id = ids.next();
     const maxHp = options.wizardMaxHp?.[index] ?? CLASSES[cls].maxHp;
     world.add({ id, team: 'squad', maxHp, bodyRadiusPx: r });
-    return { id, attack: CLASSES[cls].attack, auto: createAutoAttack() };
+    return { id, attack: options.attacks?.[cls] ?? CLASSES[cls].attack, auto: createAutoAttack() };
   });
   let squad: SquadState = createSquad(
     { ids: wizards.map((w) => w.id), leaderPosition: spawn, behind: { x: 0, y: 1 } },
@@ -105,7 +140,9 @@ export function runEncounter(options: EncounterOptions): EncounterResult {
   );
 
   // Enemies, offsets jittered per seed.
-  let enemies: EnemyState[] = (options.encounter ?? DEV_ENCOUNTER).map((s) => {
+  const fighting = options.encounter ?? DEV_ENCOUNTER;
+  const spawns = [...fighting, ...(options.bystanders ?? [])];
+  let enemies: EnemyState[] = spawns.map((s) => {
     const id = ids.next();
     const def = ENEMIES[s.enemy];
     world.add({ id, team: 'enemy', maxHp: def.maxHp, bodyRadiusPx: def.bodyRadiusPx });
@@ -115,7 +152,13 @@ export function runEncounter(options: EncounterOptions): EncounterResult {
     };
     return createEnemy(id, def, add(add(spawn, s.offset), jitter));
   });
-  const group = new Set(enemies.filter((e) => D2_GROUP.includes(e.enemy)).map((e) => e.id));
+  const group = new Set(
+    enemies
+      .slice(0, fighting.length)
+      .filter((e) => D2_GROUP.includes(e.enemy))
+      .map((e) => e.id),
+  );
+  const withReactions = options.reactions ?? true;
 
   let projectiles: Projectile[] = [];
   const kills: DeathRecord[] = [];
@@ -126,7 +169,12 @@ export function runEncounter(options: EncounterOptions): EncounterResult {
   let burningTicks = 0;
   let shotsFired = 0;
   let meleeSwings = 0;
+  let swingsLanded = 0;
+  let firstSwingMs: number | null = null;
+  let firstLandedSwingMs: number | null = null;
   let leaderChanges = 0;
+  let combusts = 0;
+  let kegs: KegState[] = DEV_KEGS.map((k) => createKeg(ids.next(), add(spawn, k.offset)));
   /** Dead enemies, kept to check every frame that they stay frozen and silent (D4). */
   let corpses: EnemyState[] = [];
   let clearedAtMs: number | null = null;
@@ -172,6 +220,37 @@ export function runEncounter(options: EncounterOptions): EncounterResult {
     enemies = enemies.filter((e) => !enemyIds.has(e.id));
   };
 
+  const reactionCtx = (): ReactionContext => ({
+    world,
+    statuses: STATUSES,
+    gibs: GIBS,
+    combust: options.combust ?? REACTIONS.combust,
+    kaboom: REACTIONS.kaboom,
+    units: [
+      ...squad.members.map((m): UnitPosition => ({ id: m.id, position: m.position })),
+      ...enemies.map((e): UnitPosition => ({ id: e.id, position: e.position })),
+    ],
+    kegs: kegBodies(kegs, KEG),
+  });
+  /** Follow-ups of a hit: Combust blasts (statuses, deaths) and keg lights. */
+  const handleReactions = (r: ReactionResults, records: DeathRecord[]): void => {
+    for (const reaction of r.reactions) {
+      if (reaction.reaction === 'combust') combusts++;
+      for (const h of reaction.area.hits) checkHit(h, `${reaction.reaction} blast`);
+      for (const st of reaction.area.statuses) if (st.result === 'applied') burningApplied++;
+    }
+    records.push(...r.reactions.flatMap((x) => x.area.deaths));
+    kegs = kegs.map((k) => (r.kegs.includes(k.id) ? triggerKeg(k, REACTIONS.kaboom).keg : k));
+  };
+
+  /** One single-target hit: M5 through reactions (follow-ups handled here), M4 plain. */
+  const hitUnit = (target: EntityId, hit: Hit, records: DeathRecord[]): HitResult => {
+    if (!withReactions) return applyHit(world, target, hit, GIBS);
+    const r = resolveUnitHit(target, hit, reactionCtx());
+    handleReactions(r, records);
+    return r.hit;
+  };
+
   const resolveEnemyAction = (action: EnemyAction, records: DeathRecord[]): void => {
     if (dead.has(action.enemyId) || !world.isAlive(action.enemyId)) {
       flag(`dead enemy ${String(action.enemyId)} attacked`);
@@ -182,10 +261,15 @@ export function runEncounter(options: EncounterOptions): EncounterResult {
     const attack = ENEMIES[kind].attack;
     if (action.kind === 'melee') {
       meleeSwings++;
+      firstSwingMs ??= t;
       if (!action.landed) return;
-      const result = applyHit(world, action.target, { ...attack, sourceId: action.enemyId }, GIBS);
-      checkHit(result, `melee from ${String(action.enemyId)}`);
-      if (result.killed) records.push(result.death);
+      const r = hitUnit(action.target, { ...attack, sourceId: action.enemyId }, records);
+      checkHit(r, `melee from ${String(action.enemyId)}`);
+      if (r.landed) {
+        swingsLanded++;
+        firstLandedSwingMs ??= t;
+      }
+      if (r.killed) records.push(r.death);
       return;
     }
     if (attack.kind !== 'projectile') return;
@@ -308,7 +392,7 @@ export function runEncounter(options: EncounterOptions): EncounterResult {
         if (!s.expired) flying.push(s.projectile);
         continue;
       }
-      const result = applyHit(world, s.hit, { ...p.source, sourceId: p.ownerId }, GIBS);
+      const result = hitUnit(s.hit, { ...p.source, sourceId: p.ownerId }, records);
       checkHit(result, `projectile ${String(p.id)}`);
       if (result.killed) records.push(result.death);
       if (!result.landed || result.killed) continue;
@@ -375,7 +459,12 @@ export function runEncounter(options: EncounterOptions): EncounterResult {
     burningTicks,
     shotsFired,
     meleeSwings,
+    swingsLanded,
+    firstSwingMs,
+    firstLandedSwingMs,
     leaderChanges,
+    combusts,
+    kegsLit: kegs.filter((k) => k.phase !== 'idle').length,
     violations,
   };
 }

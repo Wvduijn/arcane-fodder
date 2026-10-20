@@ -18,6 +18,11 @@ const BURNING_OVERLAY = {
   flickerMs: 100,
 } as const;
 
+/** Which units carry a status right now (CombatSystem reads the combat world). */
+export interface StatusLookup {
+  hasStatus(id: EntityId, status: StatusId): boolean;
+}
+
 /** Statuses this view draws. */
 const SHOWN: ReadonlySet<StatusId> = new Set<StatusId>(['burning']);
 
@@ -25,8 +30,9 @@ const FRAMES = [PlaceholderTextures.BurningA, PlaceholderTextures.BurningB] as c
 
 /**
  * One pooled flame per burning unit: added on `status:applied`, removed on `status:expired` and on
- * `unit:died` (death removes every status, GDD §6), or once the unit is gone. Follows the unit's
- * feet every frame.
+ * `unit:died` (death removes every status, GDD §6), or once the unit is gone. Each frame it also
+ * re-reads the combat world: a Combust consumes the origin's Burning with no event (GDD Q15), and
+ * the overlay goes with it. Follows the unit's feet every frame.
  */
 export class BurningOverlayView implements System {
   private readonly pool: ImagePool;
@@ -36,6 +42,7 @@ export class BurningOverlayView implements System {
   constructor(
     scene: Phaser.Scene,
     private readonly units: UnitLookup,
+    private readonly statuses: StatusLookup,
     private readonly bus: EventBus,
   ) {
     this.pool = new ImagePool(() =>
@@ -64,8 +71,8 @@ export class BurningOverlayView implements System {
     const frame = Math.floor(this.flickerMs / BURNING_OVERLAY.flickerMs);
     for (const [id, image] of this.overlays) {
       const feet = this.units.positionOf(id);
-      if (!feet) {
-        // Despawned without a death (debug G respawn).
+      if (!feet || !this.statuses.hasStatus(id, 'burning')) {
+        // Despawned without a death (debug G respawn), or Burning consumed by a Combust.
         this.remove(id);
         continue;
       }

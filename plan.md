@@ -395,15 +395,20 @@ export const CONVERGENCE_SCALING = [1.0, 1.5, 2.0, 2.5] as const; // index = liv
 **Typed event bus.** Systems communicate through events instead of reaching into each other:
 
 ```ts
-// src/game/events.ts
+// src/game/events.ts (the file is authoritative; this mirrors it as of M5)
 export interface GameEvents {
-  'unit:damaged': { id: EntityId; amount: number; source: EntityId | null };
-  'unit:died': { id: EntityId; team: Team; cause: 'combat' | 'volunteer' };
+  'unit:damaged': { id: EntityId; team: Team; amount: number; source: EntityId | null; element: DamageElement };
+  'unit:died': { id: EntityId; team: Team; cause: DeathCause; deathVariant: DeathVariantId; gibbed: boolean };
   'squad:leader-changed': { id: EntityId };
-  'spell:cast': { spell: SpellId; at: Vec2 };
-  'spell:lost': { spell: SpellId };
   'status:applied': { id: EntityId; status: StatusId };
-  'reaction:triggered': { reaction: ReactionId; at: Vec2 };
+  'status:expired': { id: EntityId; status: StatusId };
+  'spell:cast': { spell: SpellId; from: Vec2; at: Vec2 };
+  'spell:impact': { spell: SpellId; at: Vec2 };
+  'spell:lost': { spell: SpellId };
+  'spell:denied': { spell: SpellId };
+  'reaction:triggered': { reaction: ReactionId; at: Vec2; origin: EntityId; spreadTo: EntityId[] };
+  'keg:fuse-started': { id: EntityId; at: Vec2 };
+  // Planned (M6, M7): shapes are settled when each milestone opens.
   'convergence:charged': Record<string, never>;
   'convergence:released': { combo: ConvergenceId; power: number; at: Vec2 };
   'volunteer:detonated': { id: EntityId; name: string; at: Vec2 };

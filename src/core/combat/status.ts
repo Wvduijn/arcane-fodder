@@ -8,6 +8,8 @@
  *   a refresh replaces it. Ticks carry it as their `sourceId` (kill credit, GDD §0), even if that
  *   unit has died since. Null on a dead or unknown
  *   target (D4).
+ * - `removeStatus(world, target, status)`: takes a running status off a living unit (Combust consumes
+ *   Burning, GDD Q15). True if it was running. Not an expiry: it emits no `status:expired`.
  * - `stepStatuses(world, defs, dtMs)`: advances every status on every living unit, in ascending
  *   EntityId order. Returns the ticks as hits (element from the def, so a Burning kill is charred)
  *   and the statuses that ran out (emit `status:expired` for each). It applies no damage: the caller
@@ -69,6 +71,13 @@ export function applyStatus(
     appliedThisFrame: running && running.appliedThisFrame !== 'applied' ? 'refreshed' : 'applied',
   });
   return running ? 'refreshed' : 'applied';
+}
+
+export function removeStatus(world: CombatWorld, target: EntityId, status: StatusId): boolean {
+  const unit = world.get(target);
+  if (!unit?.alive || !unit.statuses.has(status)) return false;
+  world.deleteStatus(target, status);
+  return true;
 }
 
 export function stepStatuses(

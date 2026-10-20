@@ -8,8 +8,13 @@
  *   dies, the lowest surviving index leads and the trail is rebased to it (GDD §2).
  * - `slotDistancePx(tuning, index)`: how far behind the leader, along the trail, slot `index` is.
  * - `slotPosition(state, index, tuning)`: where slot `index` currently is (debug lines, slot error).
+ * - `knockSquadMember(state, id, direction, distancePx, durationMs)`: adds a knockback push to a
+ *   living member, leader included (Kaboom, GDD §8, M5). A no-op for an unknown or dead id (dead
+ *   wizards are not in the squad) and for a zero distance or direction. `stepSquad` (follow.ts)
+ *   plays the push out; see there for how it replaces input and follow while it runs.
  */
 import type { EntityId, TrailTuning, Vec2 } from '@core/types';
+import { startKnockback, type Knockback } from '@core/combat/knockback';
 import { createRoster, killMembers, type RosterKillResult } from '@core/squad/roster';
 import {
   pointAtDistance,
@@ -24,6 +29,8 @@ export interface SquadMember {
   readonly position: Vec2;
   /** Movement over the last step in px/s. Exactly {0,0} when the wizard stood still. */
   readonly velocity: Vec2;
+  /** Running knockback pushes (knockback.ts). Empty when none. */
+  readonly knockbacks: readonly Knockback[];
 }
 
 export interface SquadState {
@@ -70,6 +77,7 @@ export function createSquad(spawn: SquadSpawn, tuning: TrailTuning): SquadState 
     id,
     position: pointAtDistance(trail, slotDistancePx(tuning, index)),
     velocity: ZERO,
+    knockbacks: [],
   }));
   return { members, trail };
 }
@@ -100,6 +108,24 @@ export function killSquadMembers(
     trail = rebaseTo(state.trail, leader.position, slotDistancePx(tuning, oldIndex));
   }
   return { state: { members, trail }, killed: result.killed, ...change };
+}
+
+/** Adds a knockback push to a living member. See the module comment. */
+export function knockSquadMember(
+  state: SquadState,
+  id: EntityId,
+  direction: Vec2,
+  distancePx: number,
+  durationMs: number,
+): SquadState {
+  const push = startKnockback(direction, distancePx, durationMs);
+  if (!push || !state.members.some((m) => m.id === id)) return state;
+  return {
+    ...state,
+    members: state.members.map((m) =>
+      m.id === id ? { ...m, knockbacks: [...m.knockbacks, push] } : m,
+    ),
+  };
 }
 
 /** Distance behind the leader, along the trail, of slot `index` (0 is the leader itself). */
