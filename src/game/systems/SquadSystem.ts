@@ -7,8 +7,10 @@ import type {
   MageClassId,
   MovementTuning,
   Rect,
+  SpellTuning,
   TrailTuning,
   Vec2,
+  VolunteerTuning,
 } from '@core/types';
 import type { IdAllocator } from '@core/ids';
 import { clampToRect, insetRect, stepPosition } from '@core/math/movement';
@@ -22,6 +24,17 @@ import {
   type SquadMember,
   type SquadState,
 } from '@core/squad/squad';
+import {
+  activateVolunteer,
+  createVolunteer,
+  detonateFallen,
+  stepVolunteers,
+  type VolunteerOutcome,
+  type VolunteerRequest,
+  type VolunteerState,
+  type VolunteerStep,
+  type VolunteerStepInput,
+} from '@core/squad/volunteer';
 import { COMBAT } from '@data/combat';
 import { DEV_SQUAD } from '@data/devArena';
 import { MOVEMENT } from '@data/movement';
@@ -42,6 +55,17 @@ import type { System } from './System';
 /** Followers spawn in a straight line below the leader. */
 const SPAWN_BEHIND: Vec2 = { x: 0, y: 1 };
 
+/** While `held`, nobody walks (Convergence channel, GDD §10); ConvergenceSystem implements it. */
+export interface SquadHold {
+  readonly held: boolean;
+}
+
+/** A squad-team unit in the world: a squad member or a sprinting volunteer (enemy targeting). */
+export interface SquadUnit {
+  readonly id: EntityId;
+  readonly position: Vec2;
+}
+
 export interface SquadSystemOptions {
   /** Restart number, 0 for the first try. Names use attemptSeed(nameSeed, attempt) (GDD Q17). */
   readonly attempt: number;
@@ -53,6 +77,8 @@ export interface SquadSystemOptions {
   readonly trail?: TrailTuning;
   readonly movement?: MovementTuning;
   readonly combat?: CombatTuning;
+  /** Read every frame; never held when omitted. */
+  readonly hold?: SquadHold;
 }
 
 /** One wizard death as the killer resolved it. Debug kills: `combat`, `blood`, not gibbed. */
@@ -67,6 +93,12 @@ export interface SquadDeath {
  * The squad (GDD §1, §2). Core's {@link SquadState} is the one authoritative state: the leader
  * (index 0) moves from input (`stepPosition`, then the walkable clamp), followers move through
  * core's `stepSquad`, and deaths go through `killSquadMembers`. Sprites only mirror the state.
+ * While {@link SquadHold} is held (a Convergence channel), core holds everyone in place.
+ *
+ * Volunteer! (GDD §11): core's {@link VolunteerState} lives here too, so every wizard in the world
+ * has one owner. VolunteerSystem drives it ({@link volunteer}, {@link stepVolunteers}); a detached
+ * volunteer leaves the roster and trail but keeps its sprite and stays a squad-team unit
+ * ({@link units}, {@link positionOf}) that enemies can hit, until its `unit:died` in {@link kill}.
  *
  * Walkable is the world inset by the sprite's extent above the feet at the top (so the whole
  * sprite stays on the map) and by the body radius on the other sides; leader and followers share
@@ -77,6 +109,13 @@ export class SquadSystem implements System, LeaderSource, UnitLookup {
   /** The rect every wizard's feet are clamped to. */
   readonly walkable: Rect;
   private squad: SquadState;
+  private volunteers: VolunteerState = createVolunteer();
+  /**
+   * Last known feet of every detached volunteer still alive in the world: running, or detonated
+   * and waiting for this frame's death flush.
+   */
+  private readonly detached = new Map<EntityId, Vec2>();
+  private readonly hold: SquadHold | null;
   private readonly names: ReadonlyMap<EntityId, string>;
   private readonly classes: ReadonlyMap<EntityId, MageClassId>;
   private readonly sprites = new Map<EntityId, Phaser.GameObjects.Image>();
@@ -99,6 +138,7 @@ export class SquadSystem implements System, LeaderSource, UnitLookup {
     this.trail = options.trail ?? TRAIL;
     this.movement = options.movement ?? MOVEMENT;
     this.combat = options.combat ?? COMBAT;
+    this.hold = options.hold ?? null;
 
     const body = this.movement.wizardBodyRadiusPx;
     this.walkable = insetRect(world, {
@@ -148,6 +188,23 @@ export class SquadSystem implements System, LeaderSource, UnitLookup {
     return this.trail;
   }
 
+  /** Read-only volunteer state (cooldown, runners) for VolunteerSystem, the HUD and debug. */
+  get volunteerState(): VolunteerState {
+    return this.volunteers;
+  }
+
+  /** True while the hold source holds the squad. */
+  get held(): boolean {
+    return this.hold?.held === true;
+  }
+
+  /** Every squad-team unit in the world: the members in trail order, then sprinting volunteers. */
+  get units(): readonly SquadUnit[] {
+    const list: SquadUnit[] = this.squad.members.map(({ id, position }) => ({ id, position }));
+    for (const [id, position] of this.detached) list.push({ id, position });
+    return list;
+  }
+
   nameOf(id: EntityId): string {
     return this.names.get(id) ?? '';
   }
@@ -165,7 +222,58 @@ export class SquadSystem implements System, LeaderSource, UnitLookup {
   }
 
   positionOf(id: EntityId): Readonly<Vec2> | undefined {
-    return this.squad.members.find((member) => member.id === id)?.position ?? this.fallen.get(id);
+    return (
+      this.squad.members.find((member) => member.id === id)?.position ??
+      this.detached.get(id) ??
+      this.fallen.get(id)
+    );
+  }
+
+  /** True for a volunteer that left the squad and has not died yet. */
+  isDetached(id: EntityId): boolean {
+    return this.detached.has(id);
+  }
+
+  /**
+   * An F press through core `activateVolunteer`: on `started` the picked follower leaves the
+   * roster and the trail (its sprite stays), and starts sprinting. Events are the caller's.
+   */
+  volunteer(
+    request: VolunteerRequest,
+    tuning: VolunteerTuning,
+    spells: SpellTuning,
+  ): VolunteerOutcome {
+    const result = activateVolunteer(
+      this.volunteers,
+      this.squad,
+      request,
+      tuning,
+      spells,
+      this.trail,
+    );
+    this.volunteers = result.state;
+    this.squad = result.squad;
+    if (result.outcome.kind === 'started') {
+      this.detached.set(result.outcome.id, result.outcome.from);
+    }
+    return result.outcome;
+  }
+
+  /**
+   * One frame of sprints through core `stepVolunteers`. A detonated volunteer keeps its sprite
+   * where it went off until the caller's kill reaches {@link kill} in this frame's flush.
+   */
+  stepVolunteers(input: VolunteerStepInput, tuning: VolunteerTuning): VolunteerStep {
+    const step = stepVolunteers(this.volunteers, input, tuning);
+    this.volunteers = step.state;
+    for (const runner of step.state.runners) {
+      if (this.detached.has(runner.id)) this.detached.set(runner.id, runner.position);
+    }
+    for (const { id, at } of step.detonations) {
+      if (this.detached.has(id)) this.detached.set(id, at);
+    }
+    for (const [id, position] of this.detached) this.syncSprite({ id, position });
+    return step;
   }
 
   update(dt: number): void {
@@ -180,7 +288,7 @@ export class SquadSystem implements System, LeaderSource, UnitLookup {
     const leaderPosition = clampToRect(stepped, this.walkable, 0);
     this.squad = stepSquad(
       this.squad,
-      { leaderPosition, walkable: this.walkable, dtMs: dt },
+      { leaderPosition, walkable: this.walkable, dtMs: dt, held: this.held },
       this.trail,
       this.movement,
     );
@@ -188,11 +296,23 @@ export class SquadSystem implements System, LeaderSource, UnitLookup {
   }
 
   /**
-   * Kills every listed member on the same frame (debug keys, and CombatSystem with what core
-   * resolved). The state is updated first, so listeners already see the new leader. Then
-   * `unit:died` per death in ascending id order, and `squad:leader-changed` only when a survivor
-   * was promoted; a wipe emits no leader change. Dead or unknown ids are ignored. Dead sprites are
-   * removed (corpses and the dropped hat come in M8).
+   * Volunteers that died mid-sprint since the last step (core `detonateFallen`), taken off the
+   * runners with a `death` detonation where they fell. Called just before the frame's death flush,
+   * so the blast lands on the frame they fell and `volunteer:detonated` comes before `unit:died`.
+   */
+  detonateFallen(isAlive: (id: EntityId) => boolean): VolunteerStep {
+    const step = detonateFallen(this.volunteers, isAlive);
+    this.volunteers = step.state;
+    return step;
+  }
+
+  /**
+   * Kills every listed member and detached volunteer on the same frame (debug keys, and
+   * CombatSystem with what core resolved). The state is updated first, so listeners already see
+   * the new leader. Then `unit:died` per death in ascending id order, and `squad:leader-changed`
+   * only when a survivor was promoted; a wipe emits no leader change. Dead or unknown ids are
+   * ignored. Dead sprites are removed (corpses and the dropped hat come in M8). A volunteer killed
+   * mid-sprint was already detonated by {@link detonateFallen} earlier in the same flush.
    */
   kill(deaths: readonly SquadDeath[]): void {
     const byId = new Map(deaths.map((death) => [death.id, death]));
@@ -203,11 +323,18 @@ export class SquadSystem implements System, LeaderSource, UnitLookup {
       const position = before.find((member) => member.id === id)?.position;
       if (position) this.fallen.set(id, position);
     }
-    for (const id of result.killed) {
+    const volunteers = [...byId.keys()].filter((id) => this.detached.has(id));
+    for (const id of volunteers) {
+      const position = this.detached.get(id);
+      if (position) this.fallen.set(id, position);
+      this.detached.delete(id);
+    }
+    const killed = [...result.killed, ...volunteers].sort((a, b) => a - b);
+    for (const id of killed) {
       this.sprites.get(id)?.destroy();
       this.sprites.delete(id);
     }
-    for (const id of result.killed) {
+    for (const id of killed) {
       const death = byId.get(id);
       if (!death) continue;
       const { cause, deathVariant, gibbed } = death;
@@ -244,6 +371,8 @@ export class SquadSystem implements System, LeaderSource, UnitLookup {
     for (const sprite of this.sprites.values()) sprite.destroy();
     this.sprites.clear();
     this.fallen.clear();
+    this.detached.clear();
+    this.volunteers = createVolunteer();
   }
 
   private syncSprites(): void {
@@ -251,7 +380,7 @@ export class SquadSystem implements System, LeaderSource, UnitLookup {
   }
 
   /** Every wizard, the leader included, y-sorts by its feet. */
-  private syncSprite({ id, position }: SquadMember): void {
+  private syncSprite({ id, position }: Pick<SquadMember, 'id' | 'position'>): void {
     this.sprites.get(id)?.setPosition(position.x, position.y).setDepth(unitDepth(position.y));
   }
 }

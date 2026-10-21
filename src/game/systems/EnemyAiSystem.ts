@@ -185,7 +185,8 @@ export class EnemyAiSystem implements System, EnemyRoster {
 
   update(dt: number): void {
     this.fallen.clear();
-    const wizards: WizardView[] = this.squad.state.members.map((member) => ({
+    // Sprinting volunteers too: they are still squad-team units enemies can hit (M6).
+    const wizards: WizardView[] = this.squad.units.map((member) => ({
       id: member.id,
       position: member.position,
       bodyRadiusPx: MOVEMENT.wizardBodyRadiusPx,

@@ -4,6 +4,7 @@
  */
 export const Palette = {
   ink: 0x1a1020,
+  dusk: 0x33263f,
   slate: 0x4f4a5e,
   ash: 0x807a8c,
   cream: 0xf4ecdc,
@@ -13,7 +14,11 @@ export const Palette = {
   crimson: 0xc42a2a,
   bolt: 0xfff36b,
   cyan: 0x6fe7ff,
+  navy: 0x1d3a8a,
+  arcaneLight: 0xe07bff,
+  arcane: 0x9a3fe0,
   bark: 0x5c3a24,
+  soil: 0x3a2418,
   leather: 0x8f5a34,
 } as const;
 

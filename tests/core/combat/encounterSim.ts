@@ -10,6 +10,8 @@
  * with Combust the pack dies before any grunt reaches the squad, so M4's melee scenarios need it.
  * Every frame it checks the D4 invariants and counts violations instead of throwing, so a test can
  * report them all.
+ * M6: an optional Convergence meter is fed every landed hit (with its credit) and every death, as
+ * ConvergenceSystem feeds it from `unit:damaged` / `unit:died`, for the time-to-full log (GDD §16).
  */
 import type {
   CombustDef,
@@ -30,6 +32,7 @@ import { createProjectile, stepProjectile, type Projectile } from '@core/combat/
 import { resolveUnitHit, type ReactionContext, type ReactionResults } from '@core/combat/reactions';
 import { applyStatus, stepStatuses } from '@core/combat/status';
 import { CombatWorld } from '@core/combat/world';
+import type { ConvergenceMeter } from '@core/convergence/meter';
 import {
   createEnemy,
   knockEnemy,
@@ -73,6 +76,8 @@ export interface EncounterOptions {
   /** Balance sweeps only: replaces REACTIONS.combust / a class's auto-attack in this run. */
   readonly combust?: CombustDef;
   readonly attacks?: Partial<Record<MageClassId, ProjectileAttackDef>>;
+  /** M6: fed every landed hit and death of the fight. */
+  readonly meter?: ConvergenceMeter;
 }
 
 export interface EncounterResult {
@@ -106,6 +111,8 @@ export interface EncounterResult {
   readonly kegsLit: number;
   /** D4: every entry is a broken invariant (dead unit moved, acted, ticked, was hit or damaged). */
   readonly violations: readonly string[];
+  /** M6: when `options.meter` reached full, or null. */
+  readonly meterFullAtMs: number | null;
 }
 
 interface Wizard {
@@ -178,9 +185,18 @@ export function runEncounter(options: EncounterOptions): EncounterResult {
   /** Dead enemies, kept to check every frame that they stay frozen and silent (D4). */
   let corpses: EnemyState[] = [];
   let clearedAtMs: number | null = null;
+  let meterFullAtMs: number | null = null;
   let t = 0;
 
   const flag = (what: string) => violations.push(`t=${t.toFixed(1)}: ${what}`);
+  /** `unit:damaged` for the meter: a landed hit and its credit. */
+  const charge = (result: HitResult, source: EntityId | null) => {
+    const team = world.get(result.target)?.team;
+    if (!options.meter || !result.landed || team === undefined) return;
+    if (options.meter.onDamaged({ id: result.target, team, amount: result.dealt, source })) {
+      meterFullAtMs ??= t;
+    }
+  };
   const checkHit = (result: HitResult, what: string) => {
     if (dead.has(result.target) && (result.landed || result.dealt > 0)) {
       flag(`${what} landed on dead unit ${String(result.target)}`);
@@ -199,6 +215,7 @@ export function runEncounter(options: EncounterOptions): EncounterResult {
     for (const d of resolved) {
       dead.add(d.id);
       kills.push(d);
+      if (options.meter?.onDied(d)) meterFullAtMs ??= t;
     }
     const wizardIds = resolved.filter((d) => d.team === 'squad').map((d) => d.id);
     if (wizardIds.length > 0) {
@@ -236,7 +253,10 @@ export function runEncounter(options: EncounterOptions): EncounterResult {
   const handleReactions = (r: ReactionResults, records: DeathRecord[]): void => {
     for (const reaction of r.reactions) {
       if (reaction.reaction === 'combust') combusts++;
-      for (const h of reaction.area.hits) checkHit(h, `${reaction.reaction} blast`);
+      for (const h of reaction.area.hits) {
+        checkHit(h, `${reaction.reaction} blast`);
+        charge(h, reaction.sourceId);
+      }
       for (const st of reaction.area.statuses) if (st.result === 'applied') burningApplied++;
     }
     records.push(...r.reactions.flatMap((x) => x.area.deaths));
@@ -245,8 +265,13 @@ export function runEncounter(options: EncounterOptions): EncounterResult {
 
   /** One single-target hit: M5 through reactions (follow-ups handled here), M4 plain. */
   const hitUnit = (target: EntityId, hit: Hit, records: DeathRecord[]): HitResult => {
-    if (!withReactions) return applyHit(world, target, hit, GIBS);
+    if (!withReactions) {
+      const plain = applyHit(world, target, hit, GIBS);
+      charge(plain, hit.sourceId);
+      return plain;
+    }
     const r = resolveUnitHit(target, hit, reactionCtx());
+    charge(r.hit, hit.sourceId);
     handleReactions(r, records);
     return r.hit;
   };
@@ -417,6 +442,7 @@ export function runEncounter(options: EncounterOptions): EncounterResult {
       if (dead.has(tick.target)) flag(`status ticked on dead ${String(tick.target)}`);
       const result = applyHit(world, tick.target, tick.hit, GIBS);
       checkHit(result, 'burning tick');
+      charge(result, tick.hit.sourceId);
       if (result.landed) burningTicks++;
       if (result.killed) records.push(result.death);
     }
@@ -466,5 +492,6 @@ export function runEncounter(options: EncounterOptions): EncounterResult {
     combusts,
     kegsLit: kegs.filter((k) => k.phase !== 'idle').length,
     violations,
+    meterFullAtMs,
   };
 }

@@ -10,7 +10,8 @@
  *   except through a Combust.
  * - `resolveAreaWithReactions(event, ctx)`: one area event (Fireball, Lightning, a Combust or
  *   Kaboom blast) through `resolveAreaEvent`, then a Combust for every qualifying target (ascending
- *   id), and the idle kegs its ring touches if its element lights kegs.
+ *   id), and the idle kegs its ring touches if its element lights kegs. Its Combusts are credited to
+ *   `event.reactionSourceId` when set (the Convergence's reaction id, M6 Q3), else `event.sourceId`.
  * - `resolveKaboom(keg, ctx)`: a keg whose fuse ended (keg.ts `stepKegs`): its blast on everything
  *   in `kaboom.blast.radiusPx`: enemies, wizards at `squadDamageMultiplier`, Burning on enemies only,
  *   knockback on every survivor (wizards included), credit to the keg (GDD §0). Other idle kegs in
@@ -27,8 +28,9 @@
  * Combust on a later storm hit, even in the same frame (chains need storm hits, never fire).
  *
  * Every result carries `reactions` (emit `reaction:triggered` for each, in order: `at`, `origin`,
- * `spreadTo`), `kegs` (ids to pass to `triggerKeg`, deduplicated, ascending), and `deaths` (every
- * kill of the call, hit and reactions alike, for the frame's flush). `knockbacks` and `statuses`
+ * `spreadTo`; credit each blast's hits to its `sourceId`), `kegs` (ids to pass to `triggerKeg`,
+ * deduplicated, ascending), and `deaths` (every kill of the call, hit and reactions alike, for the
+ * frame's flush). `knockbacks` and `statuses`
  * of every blast are in each blast's `area` result.
  */
 import type { CombustDef, DamageElement, EntityId, KaboomDef, ReactionId, Vec2 } from '@core/types';
@@ -64,6 +66,11 @@ export interface ReactionOutcome {
   readonly spreadTo: readonly EntityId[];
   /** Combust only: the origin lost the status (`consumesStatus`, GDD Q15). */
   readonly consumed: boolean;
+  /**
+   * Credit for this reaction's blast (`unit:damaged.source` of its hits): the storm hit's source,
+   * or the event's `reactionSourceId` (Combust); the keg itself (Kaboom, GDD §0).
+   */
+  readonly sourceId: EntityId | null;
   readonly area: AreaEventResult;
 }
 
@@ -111,7 +118,7 @@ export function resolveAreaWithReactions(
   }
   const landed = new Set(area.hits.filter((h) => h.landed).map((h) => h.target));
   for (const origin of [...new Set(primed)].sort((a, b) => a - b)) {
-    if (landed.has(origin)) combust(origin, event.sourceId, ctx, acc);
+    if (landed.has(origin)) combust(origin, event.reactionSourceId ?? event.sourceId, ctx, acc);
   }
   return { area, ...acc.done() };
 }
@@ -141,6 +148,7 @@ export function resolveKaboom(
     origin: keg.id,
     spreadTo: [],
     consumed: false,
+    sourceId: keg.id,
     area,
   });
   if (triggersKeg(kaboom.blast.element, kaboom)) {
@@ -204,6 +212,7 @@ function combust(
     origin,
     spreadTo: area.statuses.map((s) => s.target),
     consumed: def.consumesStatus,
+    sourceId,
     area,
   });
   if (triggersKeg(def.blast.element, ctx.kaboom)) {

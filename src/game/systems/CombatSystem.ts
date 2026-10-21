@@ -24,7 +24,14 @@ import {
   type Projectile,
   type ProjectileBody,
 } from '@core/combat/projectile';
-import type { AreaBody, AreaEvent, AreaEventResult, UnitPosition } from '@core/combat/area';
+import {
+  applyAreaStatus,
+  type AreaBody,
+  type AreaEvent,
+  type AreaEventResult,
+  type AreaStatusEvent,
+  type UnitPosition,
+} from '@core/combat/area';
 import {
   resolveAreaWithReactions,
   resolveKaboom,
@@ -204,16 +211,35 @@ export class CombatSystem implements System {
   }
 
   /**
-   * One area blast (Fireball, Lightning) through core `resolveAreaWithReactions`, the only way an
-   * area effect damages units (M5 architecture): its hits, statuses and knockback, then every
-   * Combust it set off, then the kegs its ring lit (handed to KegSystem). All kills are queued for
-   * {@link flushDeaths} with the frame's other deaths.
+   * One area blast (Fireball, Lightning, Convergence strikes and burning ground, Arcane Detonation)
+   * through core `resolveAreaWithReactions`, the only way an area effect damages units (M5
+   * architecture): its hits, statuses and knockback, then every Combust it set off, then the kegs
+   * its ring lit (handed to KegSystem). The Combusts are credited to `event.reactionSourceId` when
+   * set (core's `ReactionOutcome.sourceId`; M6 Q3: the Convergence's reactions charge the meter,
+   * its strikes don't). All kills are
+   * queued for {@link flushDeaths} with the frame's other deaths.
    */
   resolveArea(event: AreaEvent): AreaEventResult {
     const result = resolveAreaWithReactions(event, this.reactionContext());
     this.applyArea(result.area, event.sourceId, event.blast.element);
-    this.applyReactions(result, event.sourceId);
+    this.applyReactions(result);
     return result.area;
+  }
+
+  /**
+   * A status on every living unit of `event.teams` the ring touches, no damage, through core
+   * `applyAreaStatus` (Meteor's burning ground, M6): `status:applied` for each new one. Not a hit:
+   * no `unit:damaged`, reactions, kegs or knockback.
+   */
+  applyAreaStatus(event: AreaStatusEvent): void {
+    const results = applyAreaStatus(event, this.unitPositions(), {
+      world: this.world,
+      statuses: this.statuses,
+      gibs: this.gibs,
+    });
+    for (const { target, status, result } of results) {
+      if (result === 'applied') this.bus.emit('status:applied', { id: target, status });
+    }
   }
 
   /**
@@ -221,7 +247,7 @@ export class CombatSystem implements System {
    * `resolveKaboom`, credited to the keg (squad-side, GDD §0), then the kegs it lights (cascade).
    */
   resolveKaboom(keg: { readonly id: EntityId; readonly position: Vec2 }): void {
-    this.applyReactions(resolveKaboom(keg, this.reactionContext()), keg.id);
+    this.applyReactions(resolveKaboom(keg, this.reactionContext()));
   }
 
   /**
@@ -231,6 +257,19 @@ export class CombatSystem implements System {
   applyStatus(target: EntityId, status: StatusId, sourceId: EntityId | null): void {
     const applied = applyStatus(this.world, target, this.statuses[status], sourceId);
     if (applied === 'applied') this.bus.emit('status:applied', { id: target, status });
+  }
+
+  /**
+   * How this living unit's death is recorded from now on, whatever kills it (core
+   * `setDeathCause`): Volunteer! marks its runner `volunteer` at activation (GDD §11, §14).
+   */
+  setDeathCause(id: EntityId, cause: DeathCause): void {
+    this.world.setDeathCause(id, cause);
+  }
+
+  /** The cause a living unit's death would be recorded with (debug kills honour it). */
+  deathCauseOf(id: EntityId): DeathCause {
+    return this.world.get(id)?.deathCause ?? 'combat';
   }
 
   /**
@@ -341,7 +380,7 @@ export class CombatSystem implements System {
     const outcome = resolveUnitHit(target, hit, this.reactionContext());
     const result = outcome.hit;
     this.recordHit(result, ownerId, source.element);
-    this.applyReactions(outcome, ownerId);
+    this.applyReactions(outcome);
     if (!result.landed || result.killed) return;
     if (source.applies !== undefined) this.applyStatus(target, source.applies, ownerId);
     // Only enemies take knockback in M4: no goblin attack has any (GDD §12, M4 Q2).
@@ -384,15 +423,16 @@ export class CombatSystem implements System {
 
   /**
    * What core resolved after a hit or blast: `reaction:triggered` then that reaction's blast, per
-   * reaction in order (`source`: the hit or event that started them); every kill of the call queued once; the kegs it lit handed to KegSystem.
+   * reaction in order, credited to core's `outcome.sourceId` (Combust: the hit's source or the
+   * event's reaction id; Kaboom: the keg, GDD §0); every kill of the call queued once; the kegs it
+   * lit handed to KegSystem.
    */
-  private applyReactions(results: ReactionResults, source: EntityId | null): void {
+  private applyReactions(results: ReactionResults): void {
     for (const outcome of results.reactions) {
       const { reaction, at, origin, spreadTo } = outcome;
       this.bus.emit('reaction:triggered', { reaction, at, origin, spreadTo });
       const blast = reaction === 'combust' ? this.combust.blast : this.kaboom.blast;
-      // Combust credit is the storm hit's source; Kaboom's is the keg itself (GDD §0).
-      this.applyArea(outcome.area, reaction === 'kaboom' ? origin : source, blast.element);
+      this.applyArea(outcome.area, outcome.sourceId, blast.element);
       this.counters = {
         ...this.counters,
         combusts: this.counters.combusts + (reaction === 'combust' ? 1 : 0),

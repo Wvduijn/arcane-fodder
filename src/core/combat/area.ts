@@ -23,6 +23,9 @@
  *   `event.sourceId`), this event's deaths (for the frame's flush), status results (emit
  *   `status:applied` for `'applied'`) and knockbacks. Kegs are not units: the reaction code finds
  *   them with `bodiesInRadius` (reactions.ts).
+ * - `applyAreaStatus(event, units, ctx)`: a status, no damage, on the living units of `event.teams`
+ *   the ring touches (body rule), ascending id: Meteor's burning ground (M6). Not a hit: no
+ *   `unit:damaged`, no reactions, no kegs, no knockback. Returns the status results, like step 3.
  */
 import type {
   AreaBlastDef,
@@ -66,6 +69,12 @@ export interface AreaEvent {
   readonly statusTeams?: readonly Team[];
   /** Never receives the status (the Combust origin). */
   readonly statusExcept?: EntityId;
+  /**
+   * Credit for the reactions this event causes (Combust, reactions.ts); default `sourceId`. The
+   * Convergence sets its own reaction id here, so the Combusts it causes charge the meter while its
+   * strikes don't (M6 Q3, meter.ts).
+   */
+  readonly reactionSourceId?: EntityId;
 }
 
 export interface AreaContext {
@@ -169,4 +178,45 @@ export function resolveAreaEvent(
   }
 
   return { hits, deaths, statuses, knockbacks };
+}
+
+export interface AreaStatusEvent {
+  readonly centre: Vec2;
+  readonly radiusPx: number;
+  readonly status: StatusId;
+  /** The status's applier (credit for its ticks). */
+  readonly sourceId: EntityId | null;
+  readonly teams: readonly Team[];
+}
+
+/** A status on every living unit of `event.teams` in range. See the module comment. */
+export function applyAreaStatus(
+  event: AreaStatusEvent,
+  units: readonly UnitPosition[],
+  ctx: AreaContext,
+): AreaStatus[] {
+  const def = ctx.statuses[event.status];
+  const statuses: AreaStatus[] = [];
+  for (const target of inRange(event.centre, event.radiusPx, event.teams, units, ctx.world)) {
+    const result = applyStatus(ctx.world, target, def, event.sourceId);
+    if (result) statuses.push({ target, status: def.id, result });
+  }
+  return statuses;
+}
+
+/** Living units of `teams` the ring touches, ascending id. */
+function inRange(
+  centre: Vec2,
+  radiusPx: number,
+  teams: readonly Team[],
+  units: readonly UnitPosition[],
+  world: CombatWorld,
+): EntityId[] {
+  const bodies: AreaBody[] = [];
+  for (const { id, position } of units) {
+    const unit = world.get(id);
+    if (!unit?.alive || !teams.includes(unit.team)) continue;
+    bodies.push({ id, position, bodyRadiusPx: unit.bodyRadiusPx, alive: true });
+  }
+  return bodiesInRadius(centre, radiusPx, bodies);
 }

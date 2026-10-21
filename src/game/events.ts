@@ -1,4 +1,5 @@
 import type {
+  ConvergenceId,
   DamageElement,
   DeathCause,
   DeathVariantId,
@@ -57,6 +58,39 @@ export interface GameEvents {
   };
   /** A keg was triggered; the 72 px ring shows until Kaboom. */
   'keg:fuse-started': { readonly id: EntityId; readonly at: Vec2 };
+  /** The Convergence meter reached max. Once per fill. */
+  'convergence:charged': Record<string, never>;
+  /** R/Space with a full meter: the meter is spent and the channel starts. */
+  'convergence:channel-started': { readonly leader: EntityId };
+  /** R/Space without a full meter, or while a channel runs: the HUD meter shakes. */
+  'convergence:denied': Record<string, never>;
+  /** Channel ended: combo and power resolved from the squad alive now (GDD Q5); `at` is locked. */
+  'convergence:released': {
+    readonly combo: ConvergenceId;
+    readonly power: number;
+    readonly at: Vec2;
+  };
+  /** One blast of the strike (Meteor's impact, each meteorlet or bolt). For FX. */
+  'convergence:impact': {
+    readonly combo: ConvergenceId;
+    /** The blast's element: tells a Firestorm meteorlet (fire) from a bolt (storm). */
+    readonly element: DamageElement;
+    readonly at: Vec2;
+    readonly radiusPx: number;
+  };
+  /** The squad was wiped mid-channel: nothing resolves (GDD §10). */
+  'convergence:cancelled': Record<string, never>;
+  /** F accepted: `id` left the squad and sprints toward `at`; `bark` is the line shown. */
+  'volunteer:started': {
+    readonly id: EntityId;
+    readonly name: string;
+    readonly bark: string;
+    readonly at: Vec2;
+  };
+  /** F refused (cooldown, only the leader left, channel running): the HUD indicator shakes. */
+  'volunteer:denied': Record<string, never>;
+  /** Arcane Detonation. `unit:died` with cause `volunteer` follows in the same flush. */
+  'volunteer:detonated': { readonly id: EntityId; readonly name: string; readonly at: Vec2 };
 }
 
 export type GameEventName = keyof GameEvents;

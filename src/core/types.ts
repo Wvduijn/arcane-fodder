@@ -268,3 +268,84 @@ export interface KegDef {
 export interface DevKegSpawn {
   readonly offset: Vec2;
 }
+
+export type ConvergenceId = 'meteor' | 'thunderstorm' | 'firestorm';
+/** Missions with an id. The dev arena until M7 adds m01-goblin-woods. */
+export type MissionId = 'dev-arena';
+
+/** Leaves burning ground that applies a status to enemy units inside on every tick (GDD §10 Meteor). */
+export interface GroundBurnDef {
+  readonly radiusPx: number;
+  readonly durationMs: number;
+  readonly tickMs: number;
+  readonly applies: StatusId;
+}
+
+/** One timed strike of a barrage, at a random enemy in the area (or a random point). */
+export interface BarrageStrikeDef {
+  /** From strike start. */
+  readonly atMs: number;
+  readonly blast: AreaBlastDef;
+}
+
+/** How a combo lands at the locked aim point (GDD §10, §15). Damage × power, never radius. */
+export type ConvergencePattern =
+  /** A shadow grows for fallMs, then one blast at the aim point. */
+  | {
+      readonly kind: 'impact';
+      readonly fallMs: number;
+      readonly blast: AreaBlastDef;
+      readonly groundBurn: GroundBurnDef | null;
+    }
+  /** Timed strikes inside the combo's radiusPx around the aim point over durationMs. */
+  | {
+      readonly kind: 'barrage';
+      readonly durationMs: number;
+      readonly strikes: readonly BarrageStrikeDef[];
+    };
+
+/** A Convergence combo (plan §4.1). The highest priority whose `requires` are all alive wins. */
+export interface ConvergenceDef {
+  readonly id: ConvergenceId;
+  readonly requires: readonly Element[];
+  readonly priority: number;
+  /** Preview ring and barrage area (GDD §10). */
+  readonly radiusPx: number;
+  readonly pattern: ConvergencePattern;
+}
+
+/** Meter and channel tuning (GDD §9, §10). */
+export interface ConvergenceTuning {
+  readonly meterMax: number;
+  readonly meterStart: number;
+  /**
+   * Per HP actually dealt to enemy units and huts (overkill excluded). Convergence strikes and the
+   * Burning they apply never charge; reactions they cause do (M6 Q3).
+   */
+  readonly chargePerDamage: number;
+  readonly chargePerKill: number;
+  /** Wired in M7. */
+  readonly chargePerHutDestroyed: number;
+  /** Wired in M7 (GDD Q20). */
+  readonly chargeOnPortalOpen: number;
+  readonly channelMs: number;
+  /** Index = living mages − 1 (plan §4.1: 1.0 / 1.5 / 2.0 / 2.5). */
+  readonly scaling: readonly number[];
+}
+
+/** Volunteer! (GDD §11). The blast hits enemy units, huts and kegs, never wizards (GDD Q7). */
+export interface VolunteerTuning {
+  /** px/s */
+  readonly sprintSpeed: number;
+  readonly fuseMs: number;
+  readonly cooldownMs: number;
+  readonly blast: AreaBlastDef;
+}
+
+/** One lost wizard on Hat Hill (plan §7.4). The epitaph is derived from `cause`. */
+export interface FallenWizard {
+  readonly name: string;
+  readonly classId: MageClassId;
+  readonly missionId: MissionId;
+  readonly cause: DeathCause;
+}

@@ -7,10 +7,21 @@
  *   knockback → the frame's deaths as one ascending-id batch → slot derivation and `spell:lost`.
  * Enemies stand still and wizard autos are off, so every effect in a run comes from the script.
  * The sim records what the scene would emit (casts, denials, impacts, reactions, fuses, losses).
+ * M6 (convergenceSim.ts) extends it through `hooks` (SpellSimHooks): `held` and `beforeSpells` (the
+ * Convergence and Volunteer steps sit between squad and spell), `extraUnits` (a sprinting
+ * volunteer is a unit outside the squad), and `credit` / `onDeaths` (what the meter reads from
+ * `unit:damaged` / `unit:died`).
  */
-import type { EntityId, MageClassId, ProjectileAttackDef, SpellId, Vec2 } from '@core/types';
+import type {
+  EnemyId,
+  EntityId,
+  MageClassId,
+  ProjectileAttackDef,
+  SpellId,
+  Vec2,
+} from '@core/types';
 import type { UnitPosition } from '@core/combat/area';
-import type { Hit } from '@core/combat/damage';
+import type { Hit, HitResult } from '@core/combat/damage';
 import { killUnit, resolveFrameDeaths, type DeathRecord } from '@core/combat/death';
 import {
   resolveAreaWithReactions,
@@ -61,6 +72,20 @@ export interface FrameInput {
   readonly press?: { readonly slot: 1 | 2; readonly aim: Vec2 | null };
 }
 
+/** Extension points for the M6 sim (see the module comment). */
+export interface SpellSimHooks {
+  /** The squad stands still this frame (Convergence channel). */
+  readonly held?: () => boolean;
+  /** Steps between squad and spell (Convergence, Volunteer!). */
+  readonly beforeSpells?: (dtMs: number) => void;
+  /** Units outside the squad and the enemy list (a sprinting volunteer). */
+  readonly extraUnits?: () => UnitPosition[];
+  /** `unit:damaged` for hits with their credit (the meter). */
+  readonly credit?: (hits: readonly HitResult[], source: EntityId | null) => void;
+  /** `unit:died` for the frame's resolved deaths (the meter). */
+  readonly onDeaths?: (deaths: readonly DeathRecord[]) => void;
+}
+
 export interface Timed<T> {
   readonly t: number;
   readonly value: T;
@@ -88,20 +113,29 @@ export class SpellSim {
   readonly deaths: Timed<DeathRecord>[] = [];
   readonly lost: Timed<SpellId>[] = [];
 
-  private readonly classes = new Map<EntityId, MageClassId>();
+  protected hooks: SpellSimHooks = {};
+  protected readonly classes = new Map<EntityId, MageClassId>();
   private readonly readSlots = createSpellSlotReader(CLASSES, SPELLS);
-  private readonly walkable = insetRect(DEV_ARENA, {
+  protected readonly walkable = insetRect(DEV_ARENA, {
     top: MOVEMENT.wizardBodyRadiusPx,
     right: MOVEMENT.wizardBodyRadiusPx,
     bottom: MOVEMENT.wizardBodyRadiusPx,
     left: MOVEMENT.wizardBodyRadiusPx,
   });
   /** Deaths resolved this frame, flushed once at its end. */
-  private pendingDeaths: DeathRecord[] = [];
+  protected pendingDeaths: DeathRecord[] = [];
 
-  constructor(dtMs: number) {
+  /**
+   * `classes`: the squad, leader first (default DEV_SQUAD's P,S,P,S). `enemyMaxHp`: per-kind HP
+   * overrides (M6: 300 HP grunts stand in for M7's huts).
+   */
+  constructor(
+    dtMs: number,
+    classes: readonly MageClassId[] = DEV_SQUAD.classes,
+    enemyMaxHp: Partial<Record<EnemyId, number>> = {},
+  ) {
     this.dtMs = dtMs;
-    const wizardIds = DEV_SQUAD.classes.map((cls) => {
+    const wizardIds = classes.map((cls) => {
       const id = this.ids.next();
       this.classes.set(id, cls);
       this.world.add({
@@ -119,7 +153,8 @@ export class SpellSim {
     this.enemies = [...DEV_ENCOUNTER, ...DEV_KEG_PACK].map((s) => {
       const id = this.ids.next();
       const def = ENEMIES[s.enemy];
-      this.world.add({ id, team: 'enemy', maxHp: def.maxHp, bodyRadiusPx: def.bodyRadiusPx });
+      const maxHp = enemyMaxHp[s.enemy] ?? def.maxHp;
+      this.world.add({ id, team: 'enemy', maxHp, bodyRadiusPx: def.bodyRadiusPx });
       return createEnemy(id, def, add(this.spawn, s.offset));
     });
     this.kegs = DEV_KEGS.map((k) => createKeg(this.ids.next(), add(this.spawn, k.offset)));
@@ -170,11 +205,13 @@ export class SpellSim {
       leaderPosition = clampToRect(leaderPosition, this.walkable, 0);
       this.squad = stepSquad(
         this.squad,
-        { leaderPosition, walkable: this.walkable, dtMs: dt },
+        { leaderPosition, walkable: this.walkable, dtMs: dt, held: this.hooks.held?.() ?? false },
         TRAIL,
         MOVEMENT,
       );
     }
+
+    this.hooks.beforeSpells?.(dt);
 
     // Spell: flights and strikes, then this frame's press.
     const step = stepCaster(this.caster, {
@@ -201,6 +238,7 @@ export class SpellSim {
         },
         this.ctx(),
       );
+      this.hooks.credit?.(r.area.hits, impact.sourceId);
       this.handle(r, r.area, true);
     }
     let outcome: CastOutcome | null = null;
@@ -298,16 +336,17 @@ export class SpellSim {
     return this.classes.get(id);
   }
 
-  private livingClasses(): MageClassId[] {
+  protected livingClasses(): MageClassId[] {
     return this.squad.members.flatMap((m) => {
       const cls = this.classes.get(m.id);
       return cls ? [cls] : [];
     });
   }
 
-  private ctx(): ReactionContext {
+  protected ctx(): ReactionContext {
     const units: UnitPosition[] = [
       ...this.squad.members.map((m) => ({ id: m.id, position: m.position })),
+      ...(this.hooks.extraUnits?.() ?? []),
       ...this.enemies.map((e) => ({ id: e.id, position: e.position })),
     ];
     return {
@@ -322,7 +361,7 @@ export class SpellSim {
   }
 
   /** A hit's follow-ups: deaths, knockback, reactions, keg lights. */
-  private handle(
+  protected handle(
     r: ReactionResults,
     primary: { readonly knockbacks: ReactionOutcome['area']['knockbacks'] } | null,
     beforeStep: boolean,
@@ -346,7 +385,10 @@ export class SpellSim {
           : e,
       );
     }
-    for (const reaction of r.reactions) this.reactions.push({ t: this.t, value: reaction });
+    for (const reaction of r.reactions) {
+      this.reactions.push({ t: this.t, value: reaction });
+      this.hooks.credit?.(reaction.area.hits, reaction.sourceId);
+    }
     this.kegs = this.kegs.map((keg) => {
       if (!r.kegs.includes(keg.id)) return keg;
       const lit = triggerKeg(keg, REACTIONS.kaboom, { beforeStep });
@@ -355,9 +397,10 @@ export class SpellSim {
     });
   }
 
-  private flush(): void {
+  protected flush(): void {
     const resolved = resolveFrameDeaths(this.pendingDeaths);
     this.pendingDeaths = [];
+    this.hooks.onDeaths?.(resolved);
     if (resolved.length > 0) {
       for (const d of resolved) this.deaths.push({ t: this.t, value: d });
       const wizards = resolved.filter((d) => d.team === 'squad').map((d) => d.id);

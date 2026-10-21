@@ -20,6 +20,7 @@ import type { CombatSystem } from './CombatSystem';
 import type { EnemyRoster } from './EnemyRoster';
 import type { SquadSystem } from './SquadSystem';
 import type { System } from './System';
+import type { ChannelGate } from './VolunteerSystem';
 
 /** Bodies other than enemy units a Fireball explodes on (kegs now, huts in M7). */
 export interface SpellHitBodies {
@@ -51,7 +52,7 @@ export interface SpellSystemOptions {
  * combat (M5.md). Each frame: re-derive the slots (and emit `spell:lost` for every spell that just
  * lost its last caster), step cooldowns, strikes and Fireball flights, resolve impacts, then take
  * this frame's `spell1`/`spell2` presses with `GameInput.aimWorld` (already world space; core clamps
- * it to the cast range).
+ * it to the cast range). Presses during a Convergence channel do nothing (M6).
  *
  * Every impact is one area event through `CombatSystem.resolveArea` (enemies only: spells never
  * hurt wizards), which also runs reactions and keg triggers. Slots are derived on every read from
@@ -72,6 +73,7 @@ export class SpellSystem implements System, SpellSlotSource, SpellFlightSource {
     private readonly enemies: EnemyRoster,
     private readonly combat: CombatSystem,
     private readonly extraBodies: SpellHitBodies,
+    private readonly channel: ChannelGate,
     private readonly ids: IdAllocator,
     private readonly bus: EventBus,
     options: SpellSystemOptions = {},
@@ -127,8 +129,9 @@ export class SpellSystem implements System, SpellSlotSource, SpellFlightSource {
         teams: ['enemy'],
       });
     }
+    // A press during a Convergence channel is taken and dropped: blocked, no shake (GDD §10).
     for (const [slot, action] of SLOT_ACTIONS) {
-      if (this.input.consume(action)) this.cast(slot);
+      if (this.input.consume(action) && !this.channel.channelling) this.cast(slot);
     }
   }
 

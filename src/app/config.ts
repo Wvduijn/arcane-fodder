@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import { SCENES } from './registry';
+import type { GameServices } from '@game/services';
+import { createScenes } from './registry';
 
 /** Logical resolution (ADR 0002). Everything is authored in these pixels and scaled to fit. */
 export const GAME_WIDTH = 640;
@@ -8,7 +9,7 @@ export const GAME_HEIGHT = 360;
 const BACKGROUND_COLOR = '#1b1f2a';
 const PARENT_ELEMENT_ID = 'game';
 
-export function createGameConfig(): Phaser.Types.Core.GameConfig {
+export function createGameConfig(services: GameServices): Phaser.Types.Core.GameConfig {
   return {
     type: Phaser.AUTO,
     title: 'Arcane Fodder',
@@ -23,6 +24,6 @@ export function createGameConfig(): Phaser.Types.Core.GameConfig {
       width: GAME_WIDTH,
       height: GAME_HEIGHT,
     },
-    scene: [...SCENES],
+    scene: createScenes(services),
   };
 }

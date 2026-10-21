@@ -14,6 +14,11 @@
  * trail records the pushed leader like any other move. Others still yield to and separate from a
  * pushed member at its new position. Dead wizards are not in the squad, so they never move.
  *
+ * Hold (M6, GDD §10 Convergence channel): with `input.held`, nobody walks. The leader ignores
+ * `input.leaderPosition` and every follower stands still (velocity exactly 0), but running
+ * knockback pushes still play out (a Kaboom can shove a channelling wizard). Follow resumes from
+ * wherever each follower stands on the first step without `held`.
+ *
  * Steering, per follower k (velocities in px/s; S = squadMoveSpeed):
  * 1. Follow. The slot's own velocity (feed-forward, so a follower on a moving slot stays on it)
  *    plus a correction for the lag behind it: S × lag / arriveRadius inside the arrive radius,
@@ -54,6 +59,8 @@ export interface SquadStepInput {
    */
   readonly walkable: Rect;
   readonly dtMs: number;
+  /** The squad stands still: no input, no follow, knockback only (Convergence channel). */
+  readonly held?: boolean;
 }
 
 const ZERO: Vec2 = { x: 0, y: 0 };
@@ -69,7 +76,7 @@ export function stepSquad(
   if (input.dtMs <= 0 || !leader) return state;
   const dt = input.dtMs / 1000;
   const leaderMove = knockedBack(leader, input) ?? {
-    position: input.leaderPosition,
+    position: input.held === true ? leader.position : input.leaderPosition,
     knockbacks: leader.knockbacks,
   };
   const trail = advanceTrail(state.trail, leaderMove.position);
@@ -91,6 +98,10 @@ export function stepSquad(
         velocity: scale(sub(pushed.position, member.position), 1 / dt),
         knockbacks: pushed.knockbacks,
       });
+      continue;
+    }
+    if (input.held === true) {
+      moved.push({ ...member, velocity: ZERO });
       continue;
     }
     const prevSlot = pointAtDistance(state.trail, slotDistancePx(tuning, k));

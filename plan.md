@@ -384,18 +384,28 @@ export type ClassId = keyof typeof CLASSES;
 ```ts
 // src/data/convergences.ts: first match by priority wins
 export const CONVERGENCES = [
-  { id: 'firestorm', requires: ['fire', 'storm'], priority: 10, baseDamage: 120, radius: 140 },
-  { id: 'meteor', requires: ['fire'], priority: 1, baseDamage: 150, radius: 90 },
-  { id: 'thunderstorm', requires: ['storm'], priority: 1, baseDamage: 100, radius: 120 },
+  {
+    id: 'firestorm', requires: ['fire', 'storm'], priority: 10, radiusPx: 140,
+    pattern: { kind: 'barrage', durationMs: 2000, strikes: [/* 6 meteorlets, 8 bolts */] },
+  },
+  {
+    id: 'meteor', requires: ['fire'], priority: 1, radiusPx: 90,
+    pattern: { kind: 'impact', fallMs: 400, blast: { /* 150 fire, r90 */ }, groundBurn: { /* … */ } },
+  },
+  {
+    id: 'thunderstorm', requires: ['storm'], priority: 1, radiusPx: 120,
+    pattern: { kind: 'barrage', durationMs: 2000, strikes: [/* 10 bolts */] },
+  },
 ] as const satisfies readonly ConvergenceDef[];
 
-export const CONVERGENCE_SCALING = [1.0, 1.5, 2.0, 2.5] as const; // index = living mages - 1
+// src/data/convergences.ts also holds CONVERGENCE (ConvergenceTuning): meter keys, channelMs and
+// scaling: [1.0, 1.5, 2.0, 2.5] // index = living mages - 1
 ```
 
 **Typed event bus.** Systems communicate through events instead of reaching into each other:
 
 ```ts
-// src/game/events.ts (the file is authoritative; this mirrors it as of M5)
+// src/game/events.ts (the file is authoritative; this mirrors it as of M6)
 export interface GameEvents {
   'unit:damaged': { id: EntityId; team: Team; amount: number; source: EntityId | null; element: DamageElement };
   'unit:died': { id: EntityId; team: Team; cause: DeathCause; deathVariant: DeathVariantId; gibbed: boolean };
@@ -408,10 +418,16 @@ export interface GameEvents {
   'spell:denied': { spell: SpellId };
   'reaction:triggered': { reaction: ReactionId; at: Vec2; origin: EntityId; spreadTo: EntityId[] };
   'keg:fuse-started': { id: EntityId; at: Vec2 };
-  // Planned (M6, M7): shapes are settled when each milestone opens.
   'convergence:charged': Record<string, never>;
+  'convergence:channel-started': { leader: EntityId };
+  'convergence:denied': Record<string, never>;
   'convergence:released': { combo: ConvergenceId; power: number; at: Vec2 };
+  'convergence:impact': { combo: ConvergenceId; element: DamageElement; at: Vec2; radiusPx: number };
+  'convergence:cancelled': Record<string, never>;
+  'volunteer:started': { id: EntityId; name: string; bark: string; at: Vec2 };
+  'volunteer:denied': Record<string, never>;
   'volunteer:detonated': { id: EntityId; name: string; at: Vec2 };
+  // Planned (M7): shapes are settled when the milestone opens.
   'mission:target-destroyed': { target: TargetId; progress: number; required: number };
   'portal:opened': { at: Vec2 };
   'portal:extracted': { saved: EntityId[]; leftBehind: EntityId[] };
@@ -436,7 +452,7 @@ interface SaveDataV1 {
   version: 1;
   settings: Settings;
   bestTimes: Record<MissionId, number>;
-  hatHill: FallenWizard[]; // name, class, mission, cause: 'combat' | 'volunteered' | 'left-behind'
+  hatHill: FallenWizard[]; // name, class, mission, cause: 'combat' | 'volunteer' | 'left-behind'
 }
 ```
 

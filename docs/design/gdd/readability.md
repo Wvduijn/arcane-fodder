@@ -199,7 +199,7 @@ on top of a live unit.
 | Blood splat decal | Dark crimson/maroon, **low contrast with the ground** (it's in the calm layer), irregular flat shape, about 24–32 px. Fades after 12 s (mvp.md §12a). |
 | Charred husk | A curled, blackened silhouette with a few dim ember pixels that stop glowing after about 1 s, so it doesn't read as Burning. |
 | Ash / scorch decal | Dark grey-brown, flat, low contrast. |
-| Electrified | **One** skeleton flash (pale bones **including the skull**, APPROVED by the CD with the skull visible for at most 2 frames; cyan edge, held 120 ms, local only), then the collapse and a smoking corpse with a thin grey smoke wisp. No body/skeleton alternation: a double flicker per goblin, across a Thunderstorm kill, would break the flash-safety cap (§1.9: 3 flashes per 333 ms). |
+| Electrified | **One** skeleton flash (pale bones **including the skull**, APPROVED by the CD with the skull visible for at most 2 frames; cyan edge, held 120 ms, local only), then the collapse and a smoking corpse with a thin grey smoke wisp. No body/skeleton alternation: a double flicker per goblin, across a Thunderstorm kill, would break the flash-safety cap (§1.9: 3 flashes per second, shared with impact flashes). |
 | Shared crater decal (≥ 3 kills from one blast) | One decal sized to the blast radius in the dominant variant, low contrast. |
 
 **Corpses must never read as live enemies.**
@@ -248,7 +248,7 @@ Every FX follows §1.6 (a near-white core plus an edge step).
 | Burning (status) | "This target is primed for Combust" | A **flame overlay rising above the head and shoulders** (2–3 frame flicker) plus embers. Orange on green goblin skin is complementary and reads well. Readable in grayscale (bright flicker). No sprite tint. |
 | Combust | Reaction triggered, and fire spreads | A small sharp orange-white pop (32 px) plus **ember arcs flying to the neighbours** that caught Burning. It must look different from Kaboom: smaller, faster, no smoke column. |
 | Kaboom | Big explosion, friendly fire | Large (72 px) blast, a smoke column, debris, a light screen shake. |
-| Convergence aim ring | "The ultimate will land here, this big" | Outlined ground ring at the combo radius (90 / 120 / 140 px), shown during the channel, coloured by combo: Meteor fire, Thunderstorm storm, Firestorm fire rim with storm ticks. |
+| Convergence aim ring | "The ultimate will land here, this big" | Outlined ground ring at the combo radius (90 / 120 / 140 px), shown during the channel, coloured by combo: Meteor fire, Thunderstorm storm, Firestorm fire rim with storm ticks. Numbers in §5c. |
 | Meteor | Huge impact plus burning ground | A **shadow grows for 400 ms** (shadows read again on a bright ground), then impact. Burning ground is a flame decal with a clear edge for 4 s. It doesn't hurt wizards, so don't make it look like the keg danger ring. |
 | Thunderstorm | Area barrage, 2 s | A dark cloud tint over the area, plus bolts. |
 | Firestorm | Both of the above | Meteorlets plus bolts. Should read as "the best one", the largest and busiest of the three. |
@@ -347,7 +347,7 @@ revisited with final art in M8.
 | Slot 2 (Lightning) | top-left at **(44, 320)**: 4 px gap after slot 1 |
 | Key label badge | **10×10** at the slot's bottom-right, top-left at (slot x + 24, slot y + 24), so it overhangs the frame by 2 px. Fill `ink`, 1 px `cream` border, letter **Q** (slot 1) / **E** (slot 2) in `cream`, the HUD pixel font at about 7 px cap height, centred |
 | Seconds text | Centred in the icon, `cream`, 1 px `ink` outline, same font |
-| Reserved | Keep x ≥ 84 in the bottom 40 px free for M6's Convergence meter (it goes right of slot 2) |
+| Reserved | Superseded in M6 (CD Q4, 2026-10-20): the Volunteer indicator takes the slot right of slot 2, and the Convergence meter sits bottom-centre (§5c) |
 
 Slot order is fixed by data (`SPELLS.<id>.slot`), never by which classes are alive (GDD §4, §5).
 
@@ -387,6 +387,164 @@ slot 1 shakes once, greys, gets the slash and stays slot 1 while Lightning still
 (4) press Q on the lost slot: it shakes, no cooldown or FX; (5) in a 100% grayscale screenshot,
 ready, cooldown and lost are still told apart (border value, sweep, slash).
 
+## 5c. Convergence and Volunteer! (M6, `HudScene` and pooled FX)
+
+**Intent.** The ultimate should feel like a held breath: the squad freezes, light pours into the
+leader, a ring says "here, this big", and the payoff lands exactly there. Volunteer! should read
+in one glance as *who* ran, *where* to, and *how long* until the bang, with a joke on top. Rules and
+data: mvp.md §9–§11, `src/data/convergences.ts`, `src/data/volunteer.ts`, `src/data/barks.ts`.
+
+**Data home.** Same as §5b (CD 2026-10-16): the HUD and FX numbers below are named constants in
+`src/game` that cite this section. Radii, durations and timings that are rules (combo radius,
+`fallMs`, `groundBurn`, strike `atMs`, `fuseMs`, `channelMs`, cooldowns) are **always read from
+data**, never copied. Palette names are style-guide names (`arcane`, `arcane-light`, `flame`,
+`flame-white`, `ember`, `cyan`, `bolt`, `ink`, `cream`, `ash`, `slate`, `soil`).
+
+### HUD (640×360 logical, `HudScene`, CD Q4 2026-10-20)
+
+| Item | Value |
+|---|---|
+| **Volunteer slot** | Same frame as a spell slot (§5b): **32×32** at top-left **(80, 320)**, 4 px gap after slot 2. Key badge **F**, 10×10 at (104, 344) |
+| Volunteer icon (placeholder until M8) | A **stepped 8-point starburst** (`arcane` body, `arcane-light` core, 1 px `ink` outline) with a small tilted pointy hat silhouette (`ink`) on top. Shape differs from the teardrop (Fireball) and zigzag (Lightning) |
+| **Convergence meter frame** | **160×12** at top-left **(240, 340)**: centred on the 640 view, bottom edge at 352 (8 px margin, the same baseline as the slots). 1 px border, fill `ink` at 75% alpha |
+| Meter fill | Inner area 158×10 at (241, 341). Fill width = `floor(158 × meter / CONVERGENCE.meterMax)` px, left to right. Body `arcane`, top row 1 px `arcane-light` |
+| Key badge **R** | 10×10 at **(404, 341)**, 4 px right of the frame, vertically centred. Fill `ink`, 1 px border, `R` in the HUD font (about 7 px cap height). Space also fires; the badge shows R only (Space is taught in M8's hints with Q/E clicks, R11) |
+
+**Meter states** (every state differs by value or motion, not hue alone, §1.10)
+
+| State | Frame border | Fill | Badge | Extra |
+|---|---|---|---|---|
+| **Charging** (< max) | `ash` | width per meter | letter `slate` | Gained pixels show `arcane-light` for **150 ms**, then settle to `arcane` (a lit leading edge while you fight) |
+| **Charged moment** (`convergence:charged`) | flashes `arcane-light` **150 ms**, then `cream` | full | letter `cream` | Same tiny UI cue as a slot's cooldown end (§5b). Not a §1.9 flash |
+| **Ready** (full) | `cream` | full | letter `cream` | **Glow:** a hard-edged 2 px `arcane-light` halo outside the frame, alpha pulsing 40% ↔ 100% with an **800 ms** period (motion cue, like the leader marker). **Glint:** a 4×10 `cream` column sweeps the fill left to right in 300 ms, every 1200 ms (the grayscale cue) |
+| **Spent** (`convergence:channel-started`) | back to `ash` | snaps to 0 (state, never delayed) | `slate` | A **ghost** of the full fill in `arcane-light` fades 60% → 0 over **300 ms** (the "you just spent it" read). Halo and glint off |
+| **Denied** (`convergence:denied`) | — | — | — | Frame **and** badge shake together, as §5b: 3 px, 200 ms, 2 cycles, linear ease-out, whole pixels, restart never stack |
+
+**Volunteer slot states**
+
+| State | Frame border | Icon | Overlay | Badge |
+|---|---|---|---|---|
+| **Ready** | `cream` | full colour | none | `cream` |
+| **Cooldown** (from activation, `VOLUNTEER.cooldownMs`) | `ash` | full colour under the sweep | §5b radial sweep, remaining seconds rounded up (12 … 1). Ends with a 150 ms `arcane-light` border flash | `cream` |
+| **Unavailable** (only the leader left) | `slate` | greyscale (`ash`/`slate`) at 50% alpha | **no slash**: the slash means "lost spell". Unavailable wins over cooldown (no sweep shown) | `slate`, 50% alpha |
+| **Denied** (`volunteer:denied`: cooldown, 1 wizard or a channel) | — | — | §5b shake on the slot | — |
+
+**During the channel** (`convergence:channel-started` until `convergence:released` or
+`convergence:cancelled`): both spell slots and the Volunteer slot get an `ink` 40% overlay ("all
+power is going into the ultimate"). Removed on the release frame. Spell presses do nothing (no
+shake); F shakes (`volunteer:denied`), as the M6 calls say.
+
+### Channel (in world)
+
+| Item | Value |
+|---|---|
+| **Leader orb** | Above the leader's staff tip. Diameter grows **4 → 12 px** linearly over `CONVERGENCE.channelMs`: `cream` core, `arcane-light` edge, 1 px `arcane` rim. It's the channel's progress bar. At release it leaves in a 2-frame upward streak and is gone. Radius ≤ 6 px, so never a §1.9 flash |
+| **Beams** | One per living non-leader wizard, staff tip → orb. **5 px wide:** 1 px core, 1 px element edge each side, 1 px `ink` at 60% alpha outside. Fire: core `flame-white`, edge `flame`. Storm: core `bolt`, edge `cyan`. The last **12 px** before the orb turn `arcane-light` core / `arcane` edge (the violet meeting point, §2) |
+| Beam motion | 4 px `cream` dashes travel along the core **toward the leader at 240 px/s** (direction cue, and it reads in grayscale) |
+| Beam in / out | Grows from the wizard to the orb over **100 ms** at channel start. A wizard dying mid-channel: their beam fades over 100 ms |
+| Leader dies mid-channel | Every beam **snaps in one frame** to the new leader's staff tip; the orb moves to them at its current size with the leader marker's ≤ 200 ms pop (§2). The new leader's own beam goes away (they're the target) |
+| Solo channel (1 wizard) | Orb only, no beams |
+| Layer | FX layer, above units (thin and short-lived, so crossing a sprite is fine) |
+
+**Preview ring** (telegraph layer, §4a)
+
+| Item | Value |
+|---|---|
+| Size and place | Radius = the combo's `radiusPx`, centred on the **clamped** aim point. Updates every frame with the aim until it locks |
+| Stroke | **Dashed**, 8 px on / 4 px off, 2 px colour with a 1 px `ink` line inside and outside. Rotates **45°/s** clockwise. The keg ring is solid, static and `crimson`; this one moves and is dashed, so "mine" never reads as "danger to me" |
+| Colour by combo | Meteor `flame`; Thunderstorm `cyan`; Firestorm dashes alternating `flame` and `cyan` |
+| Centre mark | 5×5 px `+` in the ring colour with `ink` outline at the aim point |
+| Fade in | 100 ms at channel start |
+| Combo changes mid-channel (a class died out) | Old ring fades over 150 ms while the new ring (new radius and colour) appears at once. The player sees the downgrade happen |
+| Lock (release frame) | Rotation stops and the dashes close into a **solid** ring for 150 ms. Then: **Meteor** keeps it at full alpha until the impact frame (removed then); **barrage** keeps it at 50% alpha for `pattern.durationMs` as the strike area, then fades over 200 ms |
+| Cancel (wipe) | Fades over 200 ms, no strike FX |
+
+### Strikes
+
+| FX | Value |
+|---|---|
+| **Meteor shadow** (`fallMs`) | `ink` disc at the locked aim, radius **18 → 90** (`radiusPx`) with an ease-in (quadratic: slow, then fast, like a fall), alpha 25% → 50%, hard edge plus 1 px darker rim. Ground-ring layer, inside the solid preview ring. Nice to have: a 12 px rock with a `flame` trail descending from the top-right of the view, arriving on the impact frame |
+| **Meteor impact** | Expands 24 → 90 px in 80 ms, holds 60, fades 260: **400 ms**. `flame-white` core at 40% of the radius (36 px: **counts as an impact flash**, §1.9), `flame`/`ember` body, `ink` rim. Smoke column: 4 `ash` puffs rising 32–40 px, gone by 1000 ms. Debris: 6–8 specks within 64 px. **Screen shake 3 px, 200 ms** |
+| **Burning ground** (`groundBurn`) | See the calm rules below. Radius `groundBurn.radiusPx`, starts on the impact frame, lives `groundBurn.durationMs`, the last **500 ms** fade out |
+| **Thunderstorm cloud** | A `slate` disc at 25% alpha, stepped irregular edge, radius = combo `radiusPx`. **Ground layer** (below units: it's the cloud's shadow, so units pop more, never less). Fade in 150 ms on release, held for `durationMs`, fade 200 ms. Firestorm uses the same cloud at its 140 px |
+| **Barrage bolts** (Thunderstorm r24, Firestorm r20) | Reuse the M5 Lightning strike: a vertical bolt from the top of the view, **120 ms**, plus a ground flash at the blast `radiusPx` whose near-white core is ≤ 40% of it (≤ 9.6 px): under the 16 px impact-flash size. No shake |
+| **Meteorlets** (Firestorm, r40) | On the strike frame: a 2-frame vertical streak plus a burst expanding 8 → 40 px in 60 ms, hold 40, fade 160: **260 ms**. `flame-white` core held to **12 px radius** (30%, under 16 px, so it **never asks the flash budget**), `flame`/`ember` body, `ink` rim. **Shake 1 px, 80 ms** each |
+| **Firestorm** overall | Cloud plus meteorlets plus bolts. It's the busiest of the three by count and area (14 strikes over 140 px), which is the "best one" read, without a single big flash |
+
+**Burning ground calm rules** (§1.1: calmer than units, and never the keg danger look)
+- **Base:** a flat scorched disc in `soil` at 45% alpha with a stepped, irregular edge (not a clean
+  circle), rimmed by a 1–2 px `ember` edge at 70% alpha. Low saturation. Its edge reaches
+  `radiusPx` (the area-hit rule adds the body), so the edge is honest.
+- **Flame licks:** 8 small flames, ≤ 6 px wide and ≤ 8 px tall, at seeded positions at least 8 px
+  inside the edge. 2-frame flicker at 200 ms per frame, seeded phase per lick. `ember` body with a
+  1 px `flame` tip; the near-white area stays ≤ 2 px. **Always shorter, dimmer and lower than the
+  Burning overlay** (which rises above heads and shoulders, tall and bright), so a Burning goblin
+  standing in it still reads as Burning (§6 read 6).
+- **Never:** `crimson`, a solid outlined ring, a blink, or a pulse. Those are the keg's (§4). It
+  never hurts wizards, so it must not ask the squad to dodge.
+- **Exception to §1.6:** it's a ground hazard, not a hit FX, so it has no near-white core. The flame
+  tips carry the contrast on bright grass.
+- **Layer:** ground layer above death decals, below telegraph rings, corpses and units.
+
+### Volunteer! (in world)
+
+| Item | Value |
+|---|---|
+| Blinking outline | §2: white/`arcane-light` outline alternating every **150 ms** while sprinting (sprite tint, local, exempt from §1.9 like the keg blink) |
+| Fuse ring | Around the feet, radius **14 → 4 px** linearly over `VOLUNTEER.fuseMs`, 1 px `arcane-light` with `ink` outside. Shows "how long until the bang" |
+| Blast ring | Dashed 1 px `arcane` ring at `VOLUNTEER.blast.radiusPx` (64) **following the volunteer**, 50% alpha, `ink` outside. It's truthful wherever they go off (arrival, contact, fuse or death), and helps aim at a keg or a pack |
+| Target marker | A 9×9 `arcane` X with `ink` outline at the clamped aim point, from `volunteer:started` until `volunteer:detonated` |
+| **Arcane Detonation** | Expands 16 → 64 px in 60 ms, holds 40, fades 200: **300 ms**. `cream` core at 40% (about 26 px: **counts as an impact flash**), `arcane-light`/`arcane` body, `ink` rim. The volunteer's **class hat** arcs up 24–32 px and falls back in 600 ms, landing as the dropped hat (§2, about 5 s). **Shake 2 px, 120 ms** |
+
+**Bark bubble** (`volunteer:started.bark`)
+
+| Item | Value |
+|---|---|
+| Plate | `ink` at 85% alpha, 1 px `cream` border, padding 4 px left/right and 3 px top/bottom. A 3 px tail at the bottom centre pointing at the volunteer. The same HUD look, so no new palette exception |
+| Text | `cream`, the HUD pixel font at about **7 px cap height**, one line, line height 9 px, so the plate is 15 px tall plus the tail |
+| Width | Fits the text; **max 150 px**. Every `VOLUNTEER_BARKS` line is ≤ 28 chars, so at a ≤ 5 px advance it's one line. If the font is wider, wrap at a word boundary to **2 lines max**. Never shrink or scale the font |
+| Position | Tail tip **4 px above the top of the volunteer's 48 px frame**, following them every frame at whole pixels. Kept inside the view with a 4 px margin; if the top would leave the view, it flips below the feet |
+| Timing | Appears on `volunteer:started` with a 100 ms pop (1 px up, then settle; no scaling). Stays for the whole sprint. On `volunteer:detonated` it freezes at the last spot, holds **600 ms**, then fades over **200 ms**. At most about 2.3 s on screen |
+| Layer | World UI: above units and FX, below `HudScene`. Pool of 2 (the cooldown means one at a time) |
+
+### Flash-cap notes (§1.9)
+
+| Source | Counts toward the flash budget? | Why |
+|---|---|---|
+| Meteor impact | **Yes, 1** | core about 36 px |
+| Meteorlets, all barrage bolts | No | cores held to ≤ 12 px; bolt strokes are thin lines, not a ≥ 16 px near-white area |
+| Thunderstorm/Firestorm electrified kills | Yes (skeleton flashes) | past §1.9's 3 per second, the rest skip the flash and go straight to the smoking corpse |
+| Kegs lit by a strike or a volunteer | Yes, as Kaboom | unchanged |
+| Arcane Detonation | **Yes, 1** | core about 26 px |
+| Orb, beams, ready glow, cloud, burning ground | No | no near-white area ≥ 16 px; the cloud darkens, it doesn't flash |
+| Any screen flash | **None** | screen flashes stay portal-only |
+
+- Worst case: a Meteor that lights 2 kegs asks for 3 flashes in about 0.6 s. That's at the cap, so
+  a 4th within the second is skipped (the burst still draws, §1.9). By design, Firestorm asks for
+  none of its own: the busiest combo leaves the whole budget to the skeleton flashes it causes.
+- **Shake rule:** max 3 px anywhere. A new shake replaces the running one only if its amplitude is
+  ≥ the running shake's current amplitude; shakes never stack. So six 1 px meteorlet shakes never
+  cut into a 3 px Meteor or 2 px Kaboom shake.
+
+*How to verify (D2, D3, D5, reviewer):*
+1. At 640×360 and on the gate's 390×844 phone (played in landscape, so the view is 844×390): the meter is centred bottom with R to its right; the F slot
+   sits right of slot 2; nothing overlaps.
+2. `C` fills the meter: one 150 ms border flash, then the halo pulse and glint. In a 100% grayscale
+   screenshot, ready versus charging still reads (border value, glint, badge letter).
+3. R with a non-full meter: the meter shakes. R full: the fill snaps to 0 with the ghost, the slots
+   dim, beams grow to the leader and move toward them, the orb grows over 1.2 s.
+4. Kill the leader mid-channel: beams snap to the new leader in one frame. Kill the last Pyromancer
+   mid-channel in P,S,S: the ring changes from Firestorm (140, alternating) to Thunderstorm (120,
+   cyan) before the strike.
+5. Meteor: the shadow grows inside the solid ring, the impact edge lands on the ring, the burning
+   ground is visibly calmer than a Burning goblin standing in it, and in a screenshot next to a keg
+   fuse ring it's never mistaken for it.
+6. F: the bark bubble shows one line over the runner, the blast ring and fuse ring move with them,
+   and the bubble stays 600 ms after the bang. F again: the slot shakes and shows 12…1. Down to the
+   leader: the slot is grey with no slash.
+7. Flash log (reviewer's frame capture): no 1-second window has more than 3 impact or skeleton
+   flashes during a full-squad Firestorm on 8+ goblins.
+
 ## 6. The "instant reads" list
 
 In a busy fight, at phone scale, in ≤ 200 ms, the player must be able to answer:
@@ -405,7 +563,9 @@ In a busy fight, at phone scale, in ≤ 200 ms, the player must be able to answe
 10. **How many targets are left and where's the exit?** Portal runes (gold/dark), the HUD count, and
     the edge arrow.
 11. **Is the portal open and where is safe?** Swirl plus the gold extraction ring.
-12. **Is my ultimate ready?** HUD meter glow (plan §6).
+12. **Is my ultimate ready?** HUD meter glow (plan §6, §5c), plus the bright R badge.
+12b. **Can I volunteer, and who just went?** The F slot (ready, sweep, grey), then the blinking
+    outline and bark bubble on the runner (§5c).
 13. **Is that a goblin or part of the forest?** Bright lime skin a value step off the floor, plus
     the outline.
 
@@ -457,8 +617,9 @@ the results in docs/reviews/.
 
 **Motion and safety**
 - [ ] Flash rules from §1.9 hold.
-- [ ] Screen shake only on Kaboom, Meteor/Firestorm impacts and the portal opening. It's subtle and
-      never needed for reading the game (a post-MVP setting can disable it).
+- [ ] Screen shake only on Kaboom, Meteor/Firestorm impacts, the Arcane Detonation and the portal
+      opening (amplitudes in §5c, max 3 px). It's subtle and never needed for reading the game (a
+      post-MVP setting can disable it).
 
 ## 8. Open questions (readability)
 

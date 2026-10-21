@@ -3,6 +3,7 @@ import type { EntityId, SpellDef, SpellId, Vec2 } from '@core/types';
 import { SPELLS } from '@data/spells';
 import type { EventBus, GameEventListener } from '../bus/EventBus';
 import { Depth } from '../depths';
+import { drawBolt, STORM_BOLT } from '../fx/bolts';
 import { burstCoreRadiusPx, drawBurst, drawOutlinedRing, FIRE_BURST } from '../fx/bursts';
 import type { FlashBudget } from '../fx/FlashBudget';
 import { GraphicsPool, ImagePool, type PoolStats } from '../fx/ImagePool';
@@ -40,15 +41,8 @@ const SPELL_FX = {
     outline: Palette.ink,
     tickPx: 4,
   },
-  bolt: {
-    lifeMs: 140,
-    segmentPx: 24,
-    jitterPx: 5,
-    glowLinePx: 6,
-    coreLinePx: 2,
-    glow: Palette.cyan,
-    core: Palette.bolt,
-  },
+  /** Drawn with fx/bolts STORM_BOLT. */
+  bolt: { lifeMs: 140 },
   flash: { lifeMs: 160 },
 } as const;
 
@@ -270,27 +264,8 @@ export class SpellFxView implements System {
    * jitter is a hash of the impact point, so a replay draws the same bolt.
    */
   private playBolt(at: Vec2): void {
-    const { segmentPx, jitterPx, glowLinePx, coreLinePx, glow, core } = SPELL_FX.bolt;
-    const top = this.camera.worldView.y;
-    const points: Vec2[] = [];
-    const length = Math.max(segmentPx, at.y - top);
-    const count = Math.ceil(length / segmentPx);
-    for (let i = 0; i <= count; i++) {
-      const y = at.y - (length * i) / count;
-      const x = i === 0 ? at.x : at.x + jitter(at, i) * jitterPx;
-      points.push({ x, y });
-    }
-    const g = this.boltPool.acquire().clear().setPosition(0, 0).setAlpha(1);
-    const stroke = (width: number, color: number): void => {
-      g.lineStyle(width, color).beginPath();
-      points.forEach((p, i) => {
-        if (i === 0) g.moveTo(p.x, p.y);
-        else g.lineTo(p.x, p.y);
-      });
-      g.strokePath();
-    };
-    stroke(glowLinePx, glow);
-    stroke(coreLinePx, core);
+    const g = this.boltPool.acquire().setPosition(0, 0).setAlpha(1);
+    drawBolt(g, at, this.camera.worldView.y, STORM_BOLT);
     this.bolts.push({ item: g, ageMs: 0 });
 
     // Not an impact flash (§1.9 names it: near-white area about 5 px, under 16): always plays,
@@ -302,10 +277,4 @@ export class SpellFxView implements System {
       .setAlpha(1);
     this.flashes.push({ item: flash, ageMs: 0 });
   }
-}
-
-/** Deterministic −1..1 from a point and a segment index (presentation only). */
-function jitter(at: Vec2, i: number): number {
-  const n = Math.sin(at.x * 12.9898 + at.y * 78.233 + i * 37.719) * 43758.5453;
-  return (n - Math.floor(n)) * 2 - 1;
 }

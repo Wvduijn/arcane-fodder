@@ -7,8 +7,8 @@
  *   the damage, clamped to the HP left; `dealt` is what was actually lost (overkill excluded,
  *   GDD §9: `unit:damaged.amount`).
  *   If HP reaches 0 the unit dies here, statuses removed, and the result carries its `DeathRecord`
- *   (variant from the killing blow, gib per `isGibKill`). A dead or unknown target is a no-op:
- *   `landed: false`, nothing dealt (D4).
+ *   (variant from the killing blow, gib per `isGibKill`, cause the unit's `deathCause`, world.ts).
+ *   A dead or unknown target is a no-op: `landed: false`, nothing dealt (D4).
  * - `applyEventHits(world, targets, hit, gibs)`: one area event on many units, resolved in ascending
  *   EntityId order (GDD §0). At most `gibs.maxGibbedPerEvent` of its kills gib, lowest ids first;
  *   the rest die with their normal variant (GDD §12a). `hit` may be a function of the living
@@ -18,7 +18,7 @@
  * Statuses and knockback are not applied here: the caller applies `hit.applies` (status.ts) and
  * `knockbackPx` (knockback.ts) only when `landed` and not `killed`.
  */
-import type { DeathCause, EntityId, GibTuning } from '@core/types';
+import type { EntityId, GibTuning } from '@core/types';
 import type { CombatWorld, UnitCombatState } from '@core/combat/world';
 import { deathVariantOf, isGibKill, type DeathRecord, type DeathSource } from '@core/combat/death';
 
@@ -38,8 +38,6 @@ interface HitBase {
 export type HitResult =
   | (HitBase & { readonly killed: false })
   | (HitBase & { readonly killed: true; readonly death: DeathRecord });
-
-const CAUSE: DeathCause = 'combat';
 
 /** One hit on one unit. See the module comment. */
 export function applyHit(
@@ -92,7 +90,7 @@ function resolve(
   const death: DeathRecord = {
     id: target,
     team,
-    cause: CAUSE,
+    cause: unit.deathCause,
     deathVariant: deathVariantOf(hit, team),
     gibbed,
   };

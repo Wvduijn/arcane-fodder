@@ -10,12 +10,15 @@
  * - `world.isAlive(id)`: false for dead and unknown ids.
  * - `world.units()`: every unit (dead ones until removed), in ascending EntityId order.
  * - `world.remove(id)`: forgets a unit (after its death is handled, or on despawn).
+ * - `world.setDeathCause(id, cause)`: how this living unit's death is recorded from now on, whatever
+ *   kills it (default `'combat'`). Volunteer! (M6) marks the runner `'volunteer'` at activation,
+ *   so an enemy that kills it mid-sprint still records a volunteer's death (GDD §11, §14).
  * - Low-level mutators (`setHp`, `markDead`, `setStatus`, `deleteStatus`) are for damage.ts,
  *   death.ts and status.ts. Game code goes through `applyHit`, `killUnit` and the status functions.
  *
  * Rule (D4): a dead unit never changes again. Every mutator is a no-op on a dead or unknown id.
  */
-import type { EntityId, StatusId, Team } from '@core/types';
+import type { DeathCause, EntityId, StatusId, Team } from '@core/types';
 
 /** One running status on one unit (GDD §6). */
 export interface StatusInstance {
@@ -43,12 +46,15 @@ export interface CombatUnitSpec {
 export interface UnitCombatState extends CombatUnitSpec {
   readonly hp: number;
   readonly alive: boolean;
+  /** The cause its death is recorded with (`setDeathCause`). */
+  readonly deathCause: DeathCause;
   readonly statuses: ReadonlyMap<StatusId, StatusInstance>;
 }
 
 interface MutableUnit extends CombatUnitSpec {
   hp: number;
   alive: boolean;
+  deathCause: DeathCause;
   statuses: Map<StatusId, StatusInstance>;
 }
 
@@ -61,7 +67,13 @@ export class CombatWorld {
     if (!(spec.maxHp > 0) || !Number.isFinite(spec.maxHp)) {
       throw new RangeError(`maxHp must be a positive number, got ${String(spec.maxHp)}`);
     }
-    const unit: MutableUnit = { ...spec, hp: spec.maxHp, alive: true, statuses: new Map() };
+    const unit: MutableUnit = {
+      ...spec,
+      hp: spec.maxHp,
+      alive: true,
+      deathCause: 'combat',
+      statuses: new Map(),
+    };
     this.byId.set(spec.id, unit);
     return unit;
   }
@@ -97,6 +109,11 @@ export class CombatWorld {
     unit.alive = false;
     unit.statuses.clear();
     return true;
+  }
+
+  setDeathCause(id: EntityId, cause: DeathCause): void {
+    const unit = this.living(id);
+    if (unit) unit.deathCause = cause;
   }
 
   setStatus(id: EntityId, instance: StatusInstance): void {

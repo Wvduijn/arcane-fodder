@@ -259,7 +259,7 @@ ring (the hit rule is distance ≤ radius + body radius).
 **Death playback (mvp.md §12a; tech-artist sets the rates in `src/data/animations.ts`):**
 - fire: `death-charred` 5 frames in ≤ 500 ms (~100 ms each);
 - storm: `death-skeleton` held 120 ms, then `death` 5 frames in the remaining ≤ 280 ms (~56 ms each);
-  only one flash per goblin, and core caps flashes at 3 per 333 ms (the rest skip the skeleton frame);
+  only one flash per goblin, and core caps flashes at 3 per 1000 ms (the rest skip the skeleton frame);
 - blood: `death` 5 frames in ≤ 350 ms (70 ms each).
 
 **Element of the killing blow:** fire → charred; storm → electrified; physical, arcane, Kaboom,
