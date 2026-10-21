@@ -5,7 +5,7 @@ import type { TargetCandidate } from '@core/targeting/selectTarget';
 import { CLASSES } from '@data/classes';
 import { COMBAT } from '@data/combat';
 import type { EnemyRoster } from './EnemyRoster';
-import type { SquadSystem } from './SquadSystem';
+import type { SquadHold, SquadSystem } from './SquadSystem';
 import type { System } from './System';
 
 /** A wizard shot decided this frame; CombatSystem spawns the projectile. */
@@ -31,6 +31,7 @@ export class TargetingSystem implements System {
     private readonly squad: SquadSystem,
     private readonly enemies: EnemyRoster,
     private readonly world: CombatWorld,
+    private readonly hold: SquadHold,
     private readonly tuning: CombatTuning = COMBAT,
   ) {}
 
@@ -57,6 +58,8 @@ export class TargetingSystem implements System {
   }
 
   update(dt: number): void {
+    // Convergence channel: wizards don't auto-attack (GDD §10); their auto state waits as it is.
+    if (this.hold.held) return;
     const candidates = this.candidates();
     const living = new Set<EntityId>();
     const members = [...this.squad.state.members].sort((a, b) => a.id - b.id);

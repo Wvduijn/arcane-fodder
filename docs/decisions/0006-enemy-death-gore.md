@@ -14,7 +14,7 @@ blood) and gibs. plan.md §2 previously said "never gory".
 - Corpses, decals and gibs are visual only, pooled, time-limited and engine-spawned (never Tiled
   decals). Blood is a reserved dark maroon, distinct from the fire hues. Wizard deaths stay non-gory.
 - A "Gore: on/off" setting, on by default. Off = collapse plus a neutral puff.
-- Flash safety: at most 3 skeleton flashes within any 333 ms.
+- Flash safety: at most 3 skeleton flashes within any 1000 ms (readability §1.9; aligned in M6, CD 2026-10-21).
 - plan.md §2 and .claude/agents/art-director.md were updated.
 
 ## Consequences

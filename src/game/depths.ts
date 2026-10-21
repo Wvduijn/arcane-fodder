@@ -2,6 +2,13 @@
 export const Depth = {
   Ground: 0,
   /**
+   * Ground decals under every marker, ring and unit: Meteor's burning ground and the Thunderstorm
+   * cloud's shadow (readability.md §5c).
+   */
+  GroundDecals: 1,
+  /** Small sprites on a ground decal (burning-ground flame licks). */
+  GroundDecalDetails: 2,
+  /**
    * Ground markers, below every character (leader marker). A follower may partly hide it (CD
    * playtest, M3-T9 Re-review 4).
    */
@@ -24,6 +31,9 @@ export const Depth = {
   Projectiles: 30,
   /** Death puffs and other short FX. */
   Fx: 40,
+  /** Speech bubbles (Volunteer! barks) above every FX, text above its plate. */
+  SpeechPlate: 50,
+  SpeechText: 51,
   Debug: 1000,
 } as const;
 

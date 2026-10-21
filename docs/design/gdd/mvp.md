@@ -448,21 +448,32 @@ are from the leader's spawn, like `DEV_ENCOUNTER` (§3). Every keg is ≥ 112 px
 
 **Intent.** A reward for fighting well that you spend at the big moment of each section.
 
+Data (M6): `src/data/convergences.ts` (`CONVERGENCE`).
+
 | Key | Value |
 |---|---|
-| `convergence.meterMax` | 100 |
-| `convergence.meterStart` | 40 |
-| `convergence.chargePerDamage` | 0.1 (damage actually dealt to enemies/huts, overkill excluded) |
-| `convergence.chargePerKill` | 4 |
-| `convergence.chargePerHutDestroyed` | 10 |
-| `convergence.chargeOnPortalOpen` | 50 |
+| `CONVERGENCE.meterMax` | 100 |
+| `CONVERGENCE.meterStart` | 65 (was 40; M6 T8) |
+| `CONVERGENCE.chargePerDamage` | 0.1 (damage actually dealt to enemies/huts, overkill excluded) |
+| `CONVERGENCE.chargePerKill` | 4 |
+| `CONVERGENCE.chargePerHutDestroyed` | 10 (wired in M7) |
+| `CONVERGENCE.chargeOnPortalOpen` | 50 (wired in M7) |
 
 - Charge comes from every squad-side source **except Convergence itself** (no snowballing).
+  **Convergence itself (M6 Q3, CD 2026-10-20)** = its strikes and the Burning they apply, including
+  the Meteor's burning ground (they all carry the run's Convergence source id). Reactions a strike
+  *causes* do charge (Combust from a Firestorm bolt, a Kaboom from a lit keg): the player set them
+  up. Volunteer! and Kaboom damage charge as usual.
 - `chargeOnPortalOpen` is added at `portal:opened`. Someone who spent the meter on the Hut B
   fight still starts the surge at ≥ 50 and has an ultimate during the climax (Q20).
 - It clamps at max. `convergence:charged` fires once when it reaches max.
 - The meter isn't lost on wizard deaths. It resets on mission start.
-- Starting at 40 means the first fight fills it, so the player sees the ultimate early.
+- Starting at 65 means the first fight fills it, so the player sees the ultimate early.
+  **40 → 65 (M6 T8, designer's call):** the dev arena's no-input 6-grunt fight ended at exactly
+  78.4 (40 + 6 × 4 + 144 × 0.1) on every seed and frame rate, so 40 never filled on the first
+  fight. 65 + 38.4 = 103.4 fills it with a few points to spare. The mission total moves from about
+  441 to 466 charge (4.4 → 4.7 meters), still in the "3–4 casts" band: the extra mostly overflows
+  in section 1. *Verify:* GDD §16 request 3 (first fill time in m01's first encounter, M7).
 
 Rough check: a section with 12 kills (48) plus about 290 unit damage (29) plus a 300 HP hut (30 + 10)
 gives about 117 charge. That's one full meter per section.
@@ -475,30 +486,59 @@ exposed, then a huge payoff lands where you aimed.
 **Activate.** The meter is full, no channel is running, and the squad has ≥ 1 wizard. The meter is
 spent immediately.
 
-**Channel** (`convergence.channelMs` = 1200)
+**Channel** (`CONVERGENCE.channelMs` = 1200)
 - The whole squad stops. Movement input is ignored, wizards don't auto-attack, and spells and
   Volunteer! are blocked.
 - Each living wizard beams to the leader in its element colour.
 - **Vulnerable** means they don't move or fight. There's no extra damage multiplier.
 - **Damage does not interrupt the channel** (Q1, approved).
 - The aim point keeps tracking the aim input during the channel and **locks at strike** (Q3). It's
-  clamped to `spells.maxCastRangePx`. A ground ring the size of the resolved combo's radius
-  previews it.
+  clamped to `SPELL_TUNING.maxCastRangePx` (280). A ground ring the size of the combo resolved
+  from the squad alive *now* previews it; if a death changes the combo mid-channel, the ring changes
+  with it (readability §5c).
 - If the leader dies, beams retarget to the new leader and the channel continues (Q4).
 
 **Strike (resolved at the moment the channel ends, Q5)**
 - `elements = unique(element of each living squad class)`.
 - Combo = the highest-priority entry in `CONVERGENCES` whose `requires` are all in `elements`.
-- `power = CONVERGENCE_SCALING[livingMages - 1]` = ×1.0 / ×1.5 / ×2.0 / ×2.5. It multiplies
-  **damage only**, never radius (the telegraph stays honest).
+- `power = CONVERGENCE.scaling[livingMages - 1]` = ×1.0 / ×1.5 / ×2.0 / ×2.5. It multiplies
+  **blast damage only**: never radius (the telegraph stays honest), knockback, the Burning ticks a
+  strike applies, the burning ground, or the Combust a bolt causes (reactions use their own data).
 - Hits enemy units, huts and kegs. Never wizards.
 - If everyone dies during the channel, it's a defeat and nothing resolves.
+- Ties in priority never matter: Meteor and Thunderstorm (both 1) need disjoint elements, and when
+  both are possible, Firestorm (10) wins. A test permutes `CONVERGENCES` and gets the same result.
 
-| Combo | requires | priority | Shape | Base numbers (×power) |
-|---|---|---|---|---|
-| **Firestorm** | fire + storm | 10 | Over 2000 ms in radius 140: 6 meteorlets (35 dmg fire, r40, apply Burning) at 0, 300 … 1500 ms; 8 bolts (15 dmg storm, r20) at 400, 600 … 1800 ms. Each strikes a random enemy in the area, or a random point if there are none. | 6×35 + 8×15 |
-| **Meteor** | fire | 1 | After a 400 ms fall (shadow grows), one impact: 150 dmg fire, r90, apply Burning. Leaves burning ground r90 for 4000 ms that applies Burning to enemies inside every 500 ms. | 150 |
-| **Thunderstorm** | storm | 1 | Over 2000 ms in radius 120: 10 bolts every 200 ms, 20 dmg storm, r24, each on a random enemy in the area (or a random point). | 10×20 |
+Data (M6): `src/data/convergences.ts` (`CONVERGENCES.<id>`, pattern union per §15).
+
+| Combo (`CONVERGENCES.*`) | requires | priority | `radiusPx` | Shape (`pattern`) | Base numbers (×power) |
+|---|---|---|---|---|---|
+| **Firestorm** (`firestorm`) | fire + storm | 10 | 140 | `barrage`, `durationMs` 2000: 6 meteorlets (35 dmg fire, r40, apply Burning) at 0, 300 … 1500 ms; 8 bolts (15 dmg storm, r20) at 400, 600 … 1800 ms. | 6×35 + 8×15 |
+| **Meteor** (`meteor`) | fire | 1 | 90 | `impact`, `fallMs` 400 (shadow grows), then one blast: 150 dmg fire, r90, apply Burning, knockback 24. `groundBurn`: r90 for 4000 ms, applies Burning to enemy units inside every 500 ms. | 150 |
+| **Thunderstorm** (`thunderstorm`) | storm | 1 | 120 | `barrage`, `durationMs` 2000: 10 bolts (20 dmg storm, r24) at 0, 200 … 1800 ms. | 10×20 |
+
+**Designer's calls where §10 was silent (M6 T1).**
+- **Knockback.** Meteor's impact pushes 24 (Fireball's thump, less than Kaboom's 36), so a survivor
+  stays on the burning ground. Every barrage strike (meteorlets and bolts) has **0**, like
+  Lightning: knockback would scatter the pack out of the area before the follow-up strikes, and the
+  Firestorm showcase (meteorlet burns, bolt pops) needs them to stay put. *Feel:* a barrage
+  "pins" its area; the Meteor is one heavy thump. *Verify:* in the T8 sim, no unit leaves the 140
+  ring because of a barrage strike, and a Firestorm on a 300 HP hut stand-in lands ≥ 1 Combust.
+- **Death variants.** No overrides: element mapping (§12a) gives charred (Meteor, meteorlets,
+  burning ground) and electrified (bolts), so a Firestorm leaves both, as §12a says.
+- **Strike timing.** Thunderstorm fires its first bolt on the release frame (payoff now, the last at
+  1800, the last 200 ms let the FX finish). Firestorm's bolts start at 400, after two meteorlets, so
+  there's Burning to pop. Strikes with the same `atMs` resolve in array order: at 600 and 1200 the
+  meteorlet comes first, so the bolt on that frame can pop its fresh Burning.
+- **Barrage targets.** Each strike picks, from the seeded RNG, one enemy unit or hut whose body
+  touches the combo `radiusPx` around the locked aim (area hit rule, §0), and strikes its centre
+  (a hut's footprint centre) at strike time. Picks are independent: one target can take several
+  strikes. With no target, the strike lands on a uniformly random point in the disc (it can still
+  light a keg). Kegs are never picked as targets.
+- **Burning ground.** Applies Burning only (the ticks are the Burning status's, §6), to enemy units
+  inside (`radiusPx` + body), not huts (the impact already burned them) and never wizards. It
+  doesn't trigger kegs: it applies a status, it's not a fire hit. Reapplying refreshes Burning (§6),
+  so a goblin standing in it burns for the 4 s plus Burning's 3 s.
 
 The Convergence radii don't change for 48×48. They're already screen-scale: Firestorm's 280 px
 diameter is most of the 360 px view height. The area hit rule adds 10–12 px of effective reach for
@@ -507,11 +547,25 @@ free.
 Bolts hitting Burning targets trigger Combust. That's the Firestorm showcase: meteorlets burn, bolts
 pop them. Bolt targets come from the seeded RNG.
 
+**Where the showcase happens (M6 T8 finding, designer's call: numbers kept).** A meteorlet does 35
+even at ×1.0, more than a grunt (24) or archer (18) has, so every goblin it touches dies, and
+Burning only lands on survivors. On a goblin pack the Firestorm is a **wipe** (the T8 sims: the pack
+dies to the first 1–2 meteorlets, 0 Combusts). The pop-and-spread plays on **what survives a
+meteorlet**: huts (M7; a Combust on a burning hut spreads Burning to the grunts at its door, and the
+next bolt pops them) and post-MVP heavies; and on goblins **already Burning before the cast** (autos,
+Fireball), which a bolt can pop before a meteorlet reaches them. I'm not lowering the meteorlet:
+power scaling (×2.5 = 88) one-shots goblins at any useful value, so making grunts survive would
+gut the full-squad payoff plan §4.1 asks for. Letting the bolts lead doesn't help either: a ×2 bolt
+(30) also kills a grunt. *Feel:* on goblins, "the best one" reads by size and busyness (14 strikes,
+two death variants), and on a camp by the Combusts on the hut. *Verify (M7, reviewer):* a Firestorm
+on a hut with grunts at the door shows ≥ 1 Combust and its ember arcs.
+
 **Benchmarks** (Goblin Hut = 300 HP; Goblin Woods squad = 2 P + 2 S)
 - Meteor and Thunderstorm only happen after one class has died out, so at most 2 mages are alive:
   ×1.0–1.5. Meteor does 150–225 to a hut. That's a big chunk, but it won't destroy one alone.
-- Firestorm with 4 mages (×2.5): one meteorlet does 87 and one bolt 37. A hut alone in the area
-  catches all 14 strikes, for about 820. A hut with goblins around it catches a share.
+- Firestorm with 4 mages (×2.5): one meteorlet does 88 and one bolt 38 (damage × power rounds
+  halves up, as Kaboom's ×0.5 does, M5). A hut alone in the area catches all 14 strikes, for 832.
+  A hut with goblins around it catches a share.
 - So a full squad's ultimate wipes a camp, and a broken squad's ultimate only dents it. Keeping
   wizards alive is rewarded, as plan §4.1 intends.
 
@@ -527,26 +581,41 @@ a body and maybe a spell for a big blast.
 **Activate (F).** Requires ≥ 2 squad members, cooldown ready, and no channel running.
 - The **last wizard in the trail** volunteers. Never the leader.
 - They leave the squad immediately: the spell may be lost now (§5). They shout a random bark from
-  `barks.ts`.
-- They sprint at `volunteer.sprintSpeed` toward the aim point (clamped to
-  `spells.maxCastRangePx`). They ignore separation and their own auto-attacks.
+  `VOLUNTEER_BARKS` (`src/data/barks.ts`): seeded pick, never the same line twice in a row.
+- They sprint at `VOLUNTEER.sprintSpeed` toward the aim point (clamped to
+  `SPELL_TUNING.maxCastRangePx`). They ignore separation and their own auto-attacks.
 - **Detonate at the first of:** reaching the aim point, body contact with an enemy unit or hut,
-  `volunteer.fuseMs` elapsed, or dying (they blow up where they fall).
-- Arcane Detonation: `volunteer.damage` (arcane) to enemy units and huts in `volunteer.radiusPx`.
-  Triggers kegs (Q6). No damage to wizards (Q7).
+  `VOLUNTEER.fuseMs` elapsed, or dying (they blow up where they fall).
+- Arcane Detonation: `VOLUNTEER.blast.damage` (arcane) to enemy units and huts in
+  `VOLUNTEER.blast.radiusPx`. Triggers kegs (Q6). No damage to wizards (Q7). Kills die as blood
+  (element mapping, §12a; no override) and can gib.
 - The volunteer dies. Hat Hill entry: cause `volunteer`, epitaph *"Volunteered."*
+- **Cooldown starts at activation** (designer's call, M6 T1): the press is the decision, and the
+  icon starts counting the moment the rookie leaves. The meter isn't involved. It's ready at mission
+  start.
+
+Data (M6): `src/data/volunteer.ts` (`VOLUNTEER`), `src/data/barks.ts` (`VOLUNTEER_BARKS`).
 
 | Key | Value |
 |---|---|
-| `volunteer.sprintSpeed` | 180 px/s |
-| `volunteer.fuseMs` | 1500 |
-| `volunteer.damage` | 80 |
-| `volunteer.radiusPx` | 64 |
-| `volunteer.cooldownMs` | 12000 |
-| `volunteer.knockbackPx` | 30 |
+| `VOLUNTEER.sprintSpeed` | 180 px/s (faster than the squad's 110 and every goblin) |
+| `VOLUNTEER.fuseMs` | 1500 |
+| `VOLUNTEER.cooldownMs` | 12000 |
+| `VOLUNTEER.blast.element` | `arcane` |
+| `VOLUNTEER.blast.damage` | 80 |
+| `VOLUNTEER.blast.radiusPx` | 64 |
+| `VOLUNTEER.blast.knockbackPx` | 30 |
+| `VOLUNTEER.blast.canGib` | true (§12a) |
+| `VOLUNTEER_BARKS` | 12 lines, each ≤ 28 chars (one bubble line, readability §5c) |
+
+**Barks (M6 Q5, all 12 APPROVED by the CD 2026-10-20 as written).** *Intent:* the grim joke lands in one read while the rookie runs: grizzled
+veterans who keep getting called rookies (ADR 0005 R8), resigned rather than heroic, never childish,
+no real people, no slurs. *Verify:* a unit test asserts 12 lines, each ≤ 28 chars, no duplicates
+(request to core-dev); in game, 5 volunteers in a row never show the same line twice running.
 
 **Edge cases**
-- Two volunteer presses within the cooldown: the second gives a "denied" shake.
+- Two volunteer presses within the cooldown: the second gives a "denied" shake. So does F with
+  only the leader left, or during a channel (`volunteer:denied`).
 - The volunteer is mid-sprint when the portal triggers. They're no longer in the squad, so they
   aren't saved and they still count as volunteered when they detonate. In practice the fuse runs
   out in 1.5 s anyway.
@@ -661,7 +730,7 @@ on `unit:died` (§15).
 | `deaths.recycleFadeMs` | 250 (fast fade when the oldest is recycled at the cap) |
 | `deaths.multiKillStaggerMs` | 0–150, seeded per corpse |
 | `deaths.multiKillSharedDecalAt` | 3 kills |
-| `deaths.skeletonFlashMaxPer333Ms` | 3 |
+| `deaths.skeletonFlashMaxPerSecond` | 3, shared with impact flashes (readability §1.9) |
 | `deaths.gibs.overkillRatio` | 1.5 (the killing hit's raw damage ≥ 1.5 × target maxHp) |
 | `deaths.gibs.piecesPerGoblin` | 4 (seeded 3–5) |
 | `deaths.gibs.flightMs` | 300–450 (seeded per piece) |
@@ -694,8 +763,8 @@ with art in M8.
 - **≥ 3 kills from one area event** spawn **one shared decal** at the blast centre (sized to the
   radius, in the dominant variant) instead of one per victim. That keeps the decal cap for the rest
   of the fight and reads better: one crater, not a carpet of splats.
-- **Photosensitivity cap:** at most 3 skeleton flashes start within any 333 ms. Any more electrified
-  deaths in that window skip the flash and go straight to the smoking corpse (Thunderstorm and
+- **Photosensitivity cap:** skeleton flashes share readability §1.9's budget with impact flashes:
+  at most 3 start within any 1000 ms (`FlashBudget`). Any more electrified deaths in that window skip the flash and go straight to the smoking corpse (Thunderstorm and
   Firestorm can kill many at once).
 
 **Gibs (APPROVED by the creative director)**
@@ -763,7 +832,7 @@ An Archer killed by a ×1.5 Thunderstorm bolt (30 ≥ 27) gibs; a Grunt killed b
 **Verify.** Unit test: the variant mapping for every damage source in data, including Kaboom →
 blood and the debug kill → blood. Kills from a Burning tick give charred. A Volunteer! kill gives
 blood. Pool test: 30 deaths keep ≤ 16 corpses and ≤ 24 decals. A Kaboom killing 4 makes 4 corpses
-and 1 decal. A Thunderstorm killing 6 within 333 ms makes ≤ 3 skeleton flashes.
+and 1 decal. A Thunderstorm killing 6 within 1000 ms makes ≤ 3 skeleton flashes.
 
 ### Power-curve guidance for level-designer
 - Section 1: grunts only, 1 Hut, kegs placed near a grunt choke. Teaches swarms, Fireball and Kaboom.
@@ -880,7 +949,8 @@ GDD assumes:
   (`projectile {speed}` | `strike {telegraphMs}`).
 - `ConvergenceDef` needs more than `baseDamage`/`radius`: a `pattern` union
   (`impact {fallMs, groundBurnMs}` | `barrage {durationMs, strikes[]}`), so Firestorm and
-  Thunderstorm stay data, not code.
+  Thunderstorm stay data, not code. *Applied in M6* as `impact {fallMs, blast, groundBurn}` |
+  `barrage {durationMs, strikes: {atMs, blast}[]}`, with `radiusPx` on the def (§10).
 - `ReactionDef` for Kaboom needs `triggerElements` (includes `arcane` if Q6 is accepted) and
   `squadDamageMultiplier`.
 - Wave/spawn entries need an `aggro: 'radius' | 'always'` field (the surge uses `always`).

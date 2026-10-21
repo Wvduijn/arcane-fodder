@@ -1,5 +1,15 @@
 import Phaser from 'phaser';
-import type { EntityId, MageClassId, SpellId, StatusId, Team, Vec2, Rect } from '@core/types';
+import type {
+  DeathCause,
+  EntityId,
+  FallenWizard,
+  MageClassId,
+  SpellId,
+  StatusId,
+  Team,
+  Vec2,
+  Rect,
+} from '@core/types';
 import type { CombatWorld } from '@core/combat/world';
 import { distance } from '@core/math/vec2';
 import { attemptSeed } from '@core/names/recruitNames';
@@ -14,14 +24,18 @@ import { MOVEMENT } from '@data/movement';
 import { REACTIONS } from '@data/reactions';
 import { SPELL_TUNING, SPELLS } from '@data/spells';
 import { KEG } from '@data/structures';
+import { VOLUNTEER } from '@data/volunteer';
 import type { EventBus, GameEventListener } from '../bus/EventBus';
 import { Depth } from '../depths';
 import type { LeaderMarker } from '../entities/LeaderMarker';
 import type { FlashBudget } from '../fx/FlashBudget';
+import type { ScreenShake } from '../fx/ScreenShake';
 import type { PoolStats } from '../fx/ImagePool';
 import type { SpellSlotState } from '../hud/HudModel';
 import type { GameInput } from '../input/GameInput';
+import type { SavedHatHill } from '../save/SavedHatHill';
 import type { CombatCounters, CombatSystem } from '../systems/CombatSystem';
+import type { ConvergenceDebug, ConvergenceSystem } from '../systems/ConvergenceSystem';
 import type { EnemyAiSystem, EnemyDebug } from '../systems/EnemyAiSystem';
 import type { KegDebug, KegSystem } from '../systems/KegSystem';
 import type { SpellDebug, SpellSystem } from '../systems/SpellSystem';
@@ -29,11 +43,14 @@ import type { SquadSystem } from '../systems/SquadSystem';
 import type { StatusSystem } from '../systems/StatusSystem';
 import type { System } from '../systems/System';
 import type { TargetingSystem } from '../systems/TargetingSystem';
+import type { VolunteerDebug, VolunteerSystem } from '../systems/VolunteerSystem';
 import type { BurningOverlayView } from '../views/BurningOverlayView';
+import type { ConvergenceFxView } from '../views/ConvergenceFxView';
 import type { DeathPuffView } from '../views/DeathPuffView';
 import type { HitFlashView } from '../views/HitFlashView';
 import type { ReactionFxView } from '../views/ReactionFxView';
 import type { SpellFxView } from '../views/SpellFxView';
+import type { VolunteerFxView } from '../views/VolunteerFxView';
 import { SceneKeys } from '../scenes/keys';
 import type { CameraController } from '../world/CameraController';
 
@@ -61,7 +78,14 @@ export interface DebugSnapshot {
   /** Every keg this run (spent ones included), in spawn order. */
   readonly kegs: readonly KegDebug[];
   readonly reactions: ReactionDebugSnapshot;
-  /** M5 FX pools (spell FX, reaction FX, kegs): live/created must not grow across restarts (D6). */
+  /** M6: meter, channel phase, pending strikes, the last release (combo, power, locked aim). */
+  readonly convergence: ConvergenceDebugSnapshot;
+  /** M6: cooldown, runners, detonations and the Hat Hill entries in the save (D4). */
+  readonly volunteer: VolunteerDebugSnapshot;
+  /**
+   * FX pools (spell, reaction, Convergence and Volunteer! FX, kegs): live/created must not grow
+   * across restarts (D6).
+   */
   readonly fxPools: Readonly<Record<string, PoolStats>>;
   /** Debug T: index into the corner cycle (0 = not used yet) and where the squad was last put. */
   readonly teleport: { readonly index: number; readonly leader: Vec2 | null };
@@ -117,6 +141,25 @@ export interface SpellDebugSnapshot {
   readonly lost: readonly SpellId[];
 }
 
+export interface ConvergenceDebugSnapshot extends ConvergenceDebug {
+  /** Beams drawn now (one per living follower while channelling) and the preview ring's combo. */
+  readonly beams: number;
+  readonly ringCombo: ConvergenceDebug['previewCombo'];
+  readonly impactsDrawn: number;
+  readonly shakes: number;
+  /** True while the squad is held (no walking, no autos, spells and Volunteer! blocked). */
+  readonly held: boolean;
+}
+
+export interface VolunteerDebugSnapshot extends VolunteerDebug {
+  readonly barksShown: number;
+  /** The whole hill as the save holds it now, oldest first (D4: survives reloads). */
+  readonly hatHill: readonly FallenWizard[];
+  readonly hatHillRecordedThisRun: number;
+  /** Every `volunteer:detonated` this run with its game frame (same frame as a mid-sprint death). */
+  readonly detonationLog: readonly { readonly id: EntityId; readonly frame: number }[];
+}
+
 export interface ReactionDebugSnapshot {
   readonly combusts: number;
   readonly kabooms: number;
@@ -134,6 +177,8 @@ export interface ReactionDebugSnapshot {
   /** §1.9 flash budget: impact flashes drawn and skipped. */
   readonly flashes: { readonly granted: number; readonly refused: number };
   readonly shakes: number;
+  /** §5c shake rule across every FX view: shakes started, and smaller ones refused while one ran. */
+  readonly screenShake: { readonly started: number; readonly skipped: number };
 }
 
 export interface UnitDebugSnapshot {
@@ -223,6 +268,12 @@ export interface SquadDebugSnapshot {
   readonly cameraEasing: boolean;
   /** `unit:died` events seen on the bus this run, in order. */
   readonly deaths: readonly EntityId[];
+  /** Every `unit:died` this run with its cause and the game frame it came on (M6: volunteers). */
+  readonly deathLog: readonly {
+    readonly id: EntityId;
+    readonly cause: DeathCause;
+    readonly frame: number;
+  }[];
   /** Last `squad:leader-changed` seen on the bus this run, with the game frame it arrived on. */
   readonly lastLeaderChange: { readonly id: EntityId; readonly frame: number } | null;
 }
@@ -259,6 +310,12 @@ export interface DebugSources {
   readonly spellFx: SpellFxView;
   readonly reactionFx: ReactionFxView;
   readonly flashBudget: FlashBudget;
+  readonly convergence: ConvergenceSystem;
+  readonly volunteer: VolunteerSystem;
+  readonly convergenceFx: ConvergenceFxView;
+  readonly volunteerFx: VolunteerFxView;
+  readonly hatHill: SavedHatHill;
+  readonly screenShake: ScreenShake;
 }
 
 export interface DebugOptions {
@@ -284,6 +341,10 @@ const KillFollowerKey = Phaser.Input.Keyboard.KeyCodes.L;
 const RespawnKey = Phaser.Input.Keyboard.KeyCodes.G;
 const BurnKey = Phaser.Input.Keyboard.KeyCodes.B;
 const TeleportKey = Phaser.Input.Keyboard.KeyCodes.T;
+/** plan §7.4: "In debug mode, C fills the meter." */
+const FillMeterKey = Phaser.Input.Keyboard.KeyCodes.C;
+/** Kills the sprinting volunteer (D1/D3: death mid-sprint still detonates, as a volunteer). */
+const KillVolunteerKey = Phaser.Input.Keyboard.KeyCodes.J;
 /** Mixed into the run's name seed, so the L key's picks don't mirror the name draws. */
 const DEBUG_RNG_SALT = 0x5eed_dead;
 
@@ -334,6 +395,8 @@ const Colors = {
   fireball: 0xffab2e,
   kegBody: 0xf4ecdc,
   kegBlast: 0xc42a2a,
+  volunteer: 0xe07bff,
+  burnZone: 0xffab2e,
 } as const;
 const SEPARATION_ALPHA = 0.35;
 const RANGE_ALPHA = 0.3;
@@ -353,7 +416,8 @@ export function isDebugUrl(): boolean {
  * the leader and L a random follower (seeded per attempt), both through CombatSystem.kill like any
  * death (so the combat world and the squad agree), B sets the nearest living goblin to the
  * leader Burning (no damage, no source; so D3's expiry can be seen in game), and G
- * respawns the dev encounter.
+ * respawns the dev encounter. M6: C fills the Convergence meter, J kills the sprinting volunteer;
+ * debug kills record the unit's own death cause (a runner dies as a volunteer).
  *
  * Combat (M4): HP, cooldown and target per wizard and per goblin (AI state, time in state,
  * statuses) in the panel; target lines, wizard attack ranges, goblin aggro and attack ranges, body
@@ -370,6 +434,8 @@ export class DebugOverlay implements System {
   private readonly respawnKey: Phaser.Input.Keyboard.Key;
   private readonly burnKey: Phaser.Input.Keyboard.Key;
   private readonly teleportKey: Phaser.Input.Keyboard.Key;
+  private readonly fillMeterKey: Phaser.Input.Keyboard.Key;
+  private readonly killVolunteerKey: Phaser.Input.Keyboard.Key;
   private teleportIndex = 0;
   private teleportLeader: Vec2 | null = null;
   private reactionEvents: ReactionDebugSnapshot['events'] = {
@@ -403,6 +469,8 @@ export class DebugOverlay implements System {
   private readonly killRng: Rng;
   private readonly hook: DebugHook | null;
   private readonly deaths: EntityId[] = [];
+  private readonly deathLog: { id: EntityId; cause: DeathCause; frame: number }[] = [];
+  private readonly detonationLog: { id: EntityId; frame: number }[] = [];
   private lastLeaderChange: SquadDebugSnapshot['lastLeaderChange'] = null;
   private visible: boolean;
 
@@ -435,6 +503,7 @@ export class DebugOverlay implements System {
     sources.bus.on('spell:denied', this.handleSpellDenied);
     sources.bus.on('reaction:triggered', this.handleReaction);
     sources.bus.on('keg:fuse-started', this.handleFuseStarted);
+    sources.bus.on('volunteer:detonated', this.handleDetonated);
 
     const keyboard = this.keyboard;
     this.toggleKey = keyboard.addKey(ToggleKey).on(Phaser.Input.Keyboard.Events.DOWN, this.toggle);
@@ -454,6 +523,12 @@ export class DebugOverlay implements System {
     this.teleportKey = keyboard
       .addKey(TeleportKey)
       .on(Phaser.Input.Keyboard.Events.DOWN, this.teleportSquad);
+    this.fillMeterKey = keyboard
+      .addKey(FillMeterKey)
+      .on(Phaser.Input.Keyboard.Events.DOWN, this.fillMeter);
+    this.killVolunteerKey = keyboard
+      .addKey(KillVolunteerKey)
+      .on(Phaser.Input.Keyboard.Events.DOWN, this.killVolunteer);
 
     this.hook = options.debugUrl ? { snapshot: () => this.snapshot() } : null;
     if (this.hook) window.__ARCANE_DEBUG__ = this.hook;
@@ -485,12 +560,13 @@ export class DebugOverlay implements System {
       `proj    ${String(s.combat.projectiles.length)}  pools proj ${formatPool(s.combat.pools.projectiles)} puff ${formatPool(s.combat.pools.puffs)} burn ${formatPool(s.combat.pools.burning)}`,
       ...this.spellLines(s),
       `kegs    ${s.kegs.map((k) => `#${String(k.id)} ${k.phase}${k.phase === 'fuse' ? ` ${formatSeconds(k.fuseRemainingMs)}${k.ringShown ? ' ring' : ''}` : ''}`).join('  ') || '-'}`,
+      ...this.m6Lines(s),
       `react   combust ${String(s.reactions.combusts)} kaboom ${String(s.reactions.kabooms)} kegs lit ${String(s.reactions.kegsTriggered)}  flashes ${String(s.reactions.flashes.granted)}/-${String(s.reactions.flashes.refused)} shakes ${String(s.reactions.shakes)}`,
       `fx      ${Object.entries(s.fxPools)
         .map(([name, pool]) => `${name} ${formatPool(pool)}`)
         .join(' ')}`,
       `events  dmg ${String(s.combat.events.damaged)} died ${String(s.combat.events.died)} burn +${String(s.combat.events.statusApplied)}/-${String(s.combat.events.statusExpired)} ticks ${String(s.combat.counters.statusTicks)} whiffs ${String(s.combat.counters.whiffs)}  after death ${String(s.combat.events.damagedAfterDeath + s.combat.events.statusAfterDeath)}`,
-      '[`] hide  [Backspace] restart  [K] kill leader  [L] kill follower  [G] respawn goblins  [B] burn nearest goblin  [T] corner',
+      '[`] hide  [Backspace] restart  [K] kill leader  [L] kill follower  [G] respawn goblins  [B] burn nearest goblin  [T] corner  [C] fill meter  [J] kill volunteer',
     ];
     const content = lines.join('\n');
     if (this.text.text !== content) this.text.setText(content);
@@ -544,6 +620,7 @@ export class DebugOverlay implements System {
     );
     this.drawCombat(g, s);
     this.drawSpells(g, s);
+    this.drawM6(g, s);
     if (s.aimWorld) this.drawCrosshair(g, s.aimWorld);
   }
 
@@ -573,6 +650,8 @@ export class DebugOverlay implements System {
       spells: this.spellSnapshot(),
       kegs: this.sources.kegs.debugKegs,
       reactions: this.reactionSnapshot(),
+      convergence: this.convergenceSnapshot(),
+      volunteer: this.volunteerSnapshot(),
       fxPools: this.fxPools(),
       teleport: { index: this.teleportIndex, leader: this.teleportLeader },
       marker: this.sources.marker.debugState,
@@ -608,6 +687,8 @@ export class DebugOverlay implements System {
     this.respawnKey.off(Phaser.Input.Keyboard.Events.DOWN, this.respawnEncounter);
     this.burnKey.off(Phaser.Input.Keyboard.Events.DOWN, this.burnNearest);
     this.teleportKey.off(Phaser.Input.Keyboard.Events.DOWN, this.teleportSquad);
+    this.fillMeterKey.off(Phaser.Input.Keyboard.Events.DOWN, this.fillMeter);
+    this.killVolunteerKey.off(Phaser.Input.Keyboard.Events.DOWN, this.killVolunteer);
     this.sources.bus.off('unit:died', this.handleUnitDied);
     this.sources.bus.off('squad:leader-changed', this.handleLeaderChanged);
     this.sources.bus.off('unit:damaged', this.handleDamaged);
@@ -619,6 +700,7 @@ export class DebugOverlay implements System {
     this.sources.bus.off('spell:denied', this.handleSpellDenied);
     this.sources.bus.off('reaction:triggered', this.handleReaction);
     this.sources.bus.off('keg:fuse-started', this.handleFuseStarted);
+    this.sources.bus.off('volunteer:detonated', this.handleDetonated);
     this.text.destroy();
     this.markers.destroy();
     for (const label of this.labels) label.destroy();
@@ -664,6 +746,7 @@ export class DebugOverlay implements System {
       trail: state.trail.crumbs.map((crumb) => ({ ...crumb })),
       cameraEasing: camera.isEasingSuccession,
       deaths: [...this.deaths],
+      deathLog: this.deathLog.map((entry) => ({ ...entry })),
       lastLeaderChange: this.lastLeaderChange,
     };
   }
@@ -738,7 +821,7 @@ export class DebugOverlay implements System {
   }
 
   private reactionSnapshot(): ReactionDebugSnapshot {
-    const { combat, flashBudget, reactionFx } = this.sources;
+    const { combat, flashBudget, reactionFx, screenShake } = this.sources;
     const { combusts, kabooms, kegsTriggered } = combat.stats;
     return {
       combusts,
@@ -747,12 +830,95 @@ export class DebugOverlay implements System {
       events: { ...this.reactionEvents },
       flashes: flashBudget.stats,
       shakes: reactionFx.shakeCount,
+      screenShake: screenShake.stats,
+    };
+  }
+
+  private convergenceSnapshot(): ConvergenceDebugSnapshot {
+    const { convergence, convergenceFx } = this.sources;
+    const fx = convergenceFx.debugState;
+    return {
+      ...convergence.debugState,
+      beams: fx.beams,
+      ringCombo: fx.ringCombo,
+      impactsDrawn: fx.impactsDrawn,
+      shakes: fx.shakes,
+      held: convergence.held,
+    };
+  }
+
+  private volunteerSnapshot(): VolunteerDebugSnapshot {
+    const { volunteer, volunteerFx, hatHill } = this.sources;
+    return {
+      ...volunteer.debugState,
+      barksShown: volunteerFx.barksShown,
+      hatHill: hatHill.entries,
+      hatHillRecordedThisRun: hatHill.recordedThisRun,
+      detonationLog: this.detonationLog.map((entry) => ({ ...entry })),
     };
   }
 
   private fxPools(): Readonly<Record<string, PoolStats>> {
-    const { spellFx, reactionFx, kegs } = this.sources;
-    return { ...spellFx.poolStats, ...reactionFx.poolStats, ...kegs.poolStats };
+    const { spellFx, reactionFx, kegs, convergenceFx, volunteerFx } = this.sources;
+    return {
+      ...spellFx.poolStats,
+      ...reactionFx.poolStats,
+      ...kegs.poolStats,
+      ...convergenceFx.poolStats,
+      ...volunteerFx.poolStats,
+    };
+  }
+
+  /** Convergence meter, phase and last release; Volunteer! state and Hat Hill (D5). */
+  private m6Lines(s: DebugSnapshot): string[] {
+    const c = s.convergence;
+    const channel =
+      c.channelElapsedMs === null
+        ? ''
+        : `  ${formatSeconds(c.channelElapsedMs)} ${c.previewCombo ?? '-'}${c.channelAim ? ` @${formatVec(c.channelAim, 0)}` : ''} beams ${String(c.beams)}`;
+    const last = c.lastRelease
+      ? `${c.lastRelease.combo} x${String(c.lastRelease.power)} @${formatVec(c.lastRelease.at, 0)}`
+      : '-';
+    const v = s.volunteer;
+    const state = v.unavailable
+      ? 'unavailable'
+      : v.cooldownRemainingMs > 0
+        ? `cd ${formatSeconds(v.cooldownRemainingMs)}`
+        : 'ready';
+    const runners = v.runners
+      .map(
+        (r) =>
+          `#${String(r.id)} ${r.name} ${formatSeconds(r.elapsedMs)} -> ${formatVec(r.target, 0)}`,
+      )
+      .join(', ');
+    const det = v.lastDetonation
+      ? `#${String(v.lastDetonation.id)} ${v.lastDetonation.reason} @${formatVec(v.lastDetonation.at, 0)}`
+      : '-';
+    return [
+      `conv    meter ${c.meter.toFixed(1)}/${String(c.meterMax)} ${c.phase}${channel}  pending ${String(c.pendingStrikes)} zones ${String(c.burningZones)}  last ${last}  ch ${String(c.channels)} den ${String(c.denied)} cancel ${String(c.cancelled)} hits ${String(c.impacts)}`,
+      `vol     ${state}  ${runners || '-'}  started ${String(v.started)} den ${String(v.denied)} det ${String(v.detonations)} last ${det}  hat hill ${String(v.hatHill.length)} (+${String(v.hatHillRecordedThisRun)})`,
+    ];
+  }
+
+  /** Volunteer sprint lines and blast radius; Convergence burning-ground zones are FX-drawn. */
+  private drawM6(g: Phaser.GameObjects.Graphics, s: DebugSnapshot): void {
+    for (const runner of s.volunteer.runners) {
+      const { x, y } = runner.position;
+      g.lineStyle(MARKER_LINE_PX, Colors.volunteer)
+        .lineBetween(x, y, runner.target.x, runner.target.y)
+        .strokeCircle(x, y, MOVEMENT.wizardBodyRadiusPx);
+      g.lineStyle(MARKER_LINE_PX, Colors.volunteer, RANGE_ALPHA).strokeCircle(
+        x,
+        y,
+        VOLUNTEER.blast.radiusPx,
+      );
+    }
+    if (s.convergence.channelAim) {
+      const a = s.convergence.channelAim;
+      g.lineStyle(MARKER_LINE_PX, Colors.burnZone)
+        .lineBetween(a.x - AIM_HALF_PX, a.y - AIM_HALF_PX, a.x + AIM_HALF_PX, a.y + AIM_HALF_PX)
+        .lineBetween(a.x - AIM_HALF_PX, a.y + AIM_HALF_PX, a.x + AIM_HALF_PX, a.y - AIM_HALF_PX);
+    }
   }
 
   private hudDisplayObjects(): number {
@@ -942,14 +1108,16 @@ export class DebugOverlay implements System {
     if (!this.visible || event.repeat) return;
     const { squad } = this.sources;
     const leader = squad.state.members[0];
-    if (leader) this.sources.combat.kill(leader.id, 'combat');
+    if (leader) this.sources.combat.kill(leader.id, this.sources.combat.deathCauseOf(leader.id));
   };
 
   private readonly killFollower = (_key: Phaser.Input.Keyboard.Key, event: KeyboardEvent): void => {
     if (!this.visible || event.repeat) return;
     const { squad } = this.sources;
     const followers = squad.state.members.slice(1);
-    if (followers.length > 0) this.sources.combat.kill(this.killRng.pick(followers).id, 'combat');
+    if (followers.length === 0) return;
+    const { id } = this.killRng.pick(followers);
+    this.sources.combat.kill(id, this.sources.combat.deathCauseOf(id));
   };
 
   private readonly respawnEncounter = (
@@ -959,6 +1127,22 @@ export class DebugOverlay implements System {
     if (!this.visible || event.repeat) return;
     this.respawns++;
     this.options.onRespawnEncounter();
+  };
+
+  /** Debug C (plan §7.4): the Convergence meter straight to full. */
+  private readonly fillMeter = (_key: Phaser.Input.Keyboard.Key, event: KeyboardEvent): void => {
+    if (!this.visible || event.repeat) return;
+    this.sources.convergence.fillMeter();
+  };
+
+  /** Debug J: the first sprinting volunteer dies with its recorded cause (`volunteer`). */
+  private readonly killVolunteer = (
+    _key: Phaser.Input.Keyboard.Key,
+    event: KeyboardEvent,
+  ): void => {
+    if (!this.visible || event.repeat) return;
+    const runner = this.sources.volunteer.runners[0];
+    if (runner) this.sources.combat.kill(runner.id, this.sources.combat.deathCauseOf(runner.id));
   };
 
   /** Debug B: Burning on the nearest living goblin to the leader, through the normal status path. */
@@ -1046,8 +1230,13 @@ export class DebugOverlay implements System {
     };
   };
 
-  private readonly handleUnitDied: GameEventListener<'unit:died'> = ({ id, team }) => {
+  private readonly handleDetonated: GameEventListener<'volunteer:detonated'> = ({ id }) => {
+    this.detonationLog.push({ id, frame: this.scene.game.loop.frame });
+  };
+
+  private readonly handleUnitDied: GameEventListener<'unit:died'> = ({ id, team, cause }) => {
     this.deaths.push(id);
+    this.deathLog.push({ id, cause, frame: this.scene.game.loop.frame });
     this.diedIds.add(id);
     this.events = {
       ...this.events,

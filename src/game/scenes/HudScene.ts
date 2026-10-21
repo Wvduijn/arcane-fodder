@@ -1,6 +1,9 @@
 import Phaser from 'phaser';
 import type { SpellId } from '@core/types';
 import type { HudSlotView, HudView } from '../hud/HudModel';
+import { CHANNEL_DIM_ALPHA, DENIED_SHAKE, shakeOffsetPx, squareSweep } from '../hud/hudShapes';
+import { MeterWidget } from '../hud/MeterWidget';
+import { VolunteerWidget } from '../hud/VolunteerWidget';
 import { cssColor, Palette } from '../palette';
 import { PlaceholderTextures } from '../placeholders';
 import { SceneKeys } from './keys';
@@ -29,7 +32,7 @@ const SLOTS = {
   lost: { iconAlpha: 0.5, fadeMs: 250, slashInsetPx: 6, slashPx: 2, slashOutlinePx: 1 },
   readyFlashMs: 150,
   /** Slot-only shake: 3 px, 200 ms, 2 full cycles, amplitude easing out linearly, whole px. */
-  shake: { amplitudePx: 3, durationMs: 200, cycles: 2 },
+  shake: DENIED_SHAKE,
 } as const;
 
 const KEY_LABELS = { 1: 'Q', 2: 'E' } as const satisfies Record<1 | 2, string>;
@@ -79,6 +82,8 @@ interface SlotWidget {
   readonly seconds: Phaser.GameObjects.Text;
   readonly badge: Phaser.GameObjects.Graphics;
   readonly key: Phaser.GameObjects.Text;
+  /** The channel dim (§5c), above everything in the slot. */
+  readonly dim: Phaser.GameObjects.Graphics;
   readonly baseX: number;
   /** Null until the first render. */
   look: Look | null;
@@ -96,7 +101,8 @@ interface SlotWidget {
 
 /**
  * Screen-fixed HUD (M5 Q3), its own scene above MissionScene: its own camera, never scrolled or
- * zoomed, ready for M6's meter (x ≥ 84 in the bottom 40 px is kept free) and M8's touch buttons.
+ * zoomed: the spell slots bottom-left, the Volunteer! icon right of them and the Convergence meter
+ * bottom-centre (M6 Q4, {@link VolunteerWidget}, {@link MeterWidget}); M8's touch buttons later.
  * It reads only the {@link HudView} passed at launch; MissionScene stops it on its own SHUTDOWN and
  * launches a fresh one every run, so nothing outlives a restart (Phaser clears the display list).
  *
@@ -110,6 +116,8 @@ interface SlotWidget {
 export class HudScene extends Phaser.Scene {
   private view: HudView | null = null;
   private widgets: SlotWidget[] = [];
+  private meter: MeterWidget | null = null;
+  private volunteer: VolunteerWidget | null = null;
 
   constructor() {
     super(SceneKeys.Hud);
@@ -118,6 +126,8 @@ export class HudScene extends Phaser.Scene {
   init(data: HudSceneData): void {
     this.view = data.view;
     this.widgets = [];
+    this.meter = null;
+    this.volunteer = null;
   }
 
   create(): void {
@@ -127,6 +137,8 @@ export class HudScene extends Phaser.Scene {
     this.widgets = ([1, 2] as const).map((slot, i) =>
       this.createSlot(slot, SLOTS.leftPx + i * (SLOTS.framePx + SLOTS.gapPx), y),
     );
+    this.meter = new MeterWidget(this);
+    this.volunteer = new VolunteerWidget(this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.handleShutdown);
   }
 
@@ -137,7 +149,10 @@ export class HudScene extends Phaser.Scene {
       const slot = view.slots.find((s) => s.slot === widget.slot);
       widget.container.setVisible(slot !== undefined);
       if (slot) this.renderSlot(widget, slot, delta);
+      widget.dim.setVisible(view.meter.channelling);
     }
+    this.meter?.render(view.meter, delta);
+    this.volunteer?.render(view.volunteer, view.meter.channelling, delta);
   }
 
   private createSlot(slot: 1 | 2, x: number, y: number): SlotWidget {
@@ -160,6 +175,11 @@ export class HudScene extends Phaser.Scene {
     const key = this.add
       .text(offsetPx + px / 2, offsetPx + px / 2, KEY_LABELS[slot], KEY_STYLE)
       .setOrigin(0.5, 0.5);
+    const dim = this.add
+      .graphics()
+      .fillStyle(Palette.ink, CHANNEL_DIM_ALPHA)
+      .fillRect(0, 0, SLOTS.framePx, SLOTS.framePx)
+      .setVisible(false);
     const container = this.add.container(x, y, [
       frame,
       icon,
@@ -168,6 +188,7 @@ export class HudScene extends Phaser.Scene {
       seconds,
       badge,
       key,
+      dim,
     ]);
     return {
       slot,
@@ -179,6 +200,7 @@ export class HudScene extends Phaser.Scene {
       seconds,
       badge,
       key,
+      dim,
       baseX: x,
       look: null,
       spell: null,
@@ -233,14 +255,8 @@ export class HudScene extends Phaser.Scene {
     const label = look === 'cooldown' ? String(Math.ceil(slot.cooldownRemainingMs / 1000)) : '';
     if (widget.seconds.text !== label) widget.seconds.setText(label);
 
-    let offset = 0;
-    if (widget.shakeMs > 0) {
-      widget.shakeMs = Math.max(0, widget.shakeMs - delta);
-      const { durationMs, amplitudePx, cycles } = SLOTS.shake;
-      const t = 1 - widget.shakeMs / durationMs;
-      offset = Math.round(Math.sin(t * cycles * Math.PI * 2) * amplitudePx * (1 - t));
-    }
-    widget.container.setX(widget.baseX + offset);
+    widget.shakeMs = Math.max(0, widget.shakeMs - delta);
+    widget.container.setX(widget.baseX + shakeOffsetPx(widget.shakeMs, SLOTS.shake));
   }
 
   private drawFrameFor(widget: SlotWidget, slot: HudSlotView, look: Look): void {
@@ -303,32 +319,8 @@ export class HudScene extends Phaser.Scene {
   private readonly handleShutdown = (): void => {
     // Phaser destroys the display list on stop; only references are dropped here.
     this.widgets = [];
+    this.meter = null;
+    this.volunteer = null;
     this.view = null;
   };
-}
-
-/**
- * Polygon of a clockwise pie from 12 o'clock covering `fraction` of a square of half-size `half`
- * (local 0..2·half), clipped to the square: rays are projected onto its edges, corners included.
- */
-function squareSweep(half: number, fraction: number): Phaser.Math.Vector2[] {
-  const start = -Math.PI / 2;
-  const end = start + fraction * Math.PI * 2;
-  const quarter = Math.PI / 4;
-  const angles = [start];
-  // Every corner (odd multiples of 45°) inside the range keeps the clip exact.
-  for (let k = Math.ceil((start - quarter) / (2 * quarter)); ; k++) {
-    const corner = quarter + k * 2 * quarter;
-    if (corner >= end) break;
-    if (corner > start) angles.push(corner);
-  }
-  angles.push(end);
-  const points = [new Phaser.Math.Vector2(half, half)];
-  for (const angle of angles) {
-    const dx = Math.cos(angle);
-    const dy = Math.sin(angle);
-    const t = half / Math.max(Math.abs(dx), Math.abs(dy));
-    points.push(new Phaser.Math.Vector2(half + dx * t, half + dy * t));
-  }
-  return points;
 }

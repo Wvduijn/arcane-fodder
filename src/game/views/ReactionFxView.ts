@@ -5,7 +5,9 @@ import type { EventBus, GameEventListener } from '../bus/EventBus';
 import { Depth } from '../depths';
 import { burstCoreRadiusPx, drawBurst, FIRE_BURST } from '../fx/bursts';
 import type { FlashBudget } from '../fx/FlashBudget';
+import type { ScreenShake } from '../fx/ScreenShake';
 import { GraphicsPool, ImagePool, type PoolStats } from '../fx/ImagePool';
+import { arcPoint, Movers } from '../fx/Movers';
 import type { UnitLookup } from '../entities/Positioned';
 import { Palette } from '../palette';
 import { PlaceholderTextures } from '../placeholders';
@@ -38,8 +40,6 @@ const REACTION_FX = {
   shake: { px: 2, durationMs: 120 },
 } as const;
 
-const DEBRIS_TINTS = [Palette.bark, Palette.slate] as const;
-
 interface BurstTiming {
   readonly startPx: number;
   readonly expandMs: number;
@@ -66,16 +66,6 @@ interface Ember {
   ageMs: number;
 }
 
-interface Mover {
-  readonly image: Phaser.GameObjects.Image;
-  readonly from: Vec2;
-  readonly to: Vec2;
-  readonly arcPx: number;
-  readonly moveMs: number;
-  readonly lifeMs: number;
-  ageMs: number;
-}
-
 /**
  * Combust pop and ember arcs, Kaboom blast, smoke column, debris and shake; pooled, driven by
  * `reaction:triggered` and the scene's dt (Phaser clock). Ember arcs are decorative: the Burning
@@ -88,13 +78,12 @@ export class ReactionFxView implements System {
   private readonly debrisPool: ImagePool;
   private readonly bursts: Burst[] = [];
   private readonly embers: Ember[] = [];
-  private readonly movers: Mover[] = [];
-  private readonly moverPools = new Map<Phaser.GameObjects.Image, ImagePool>();
+  private readonly movers: Movers;
   private shakes = 0;
 
   constructor(
     scene: Phaser.Scene,
-    private readonly camera: Phaser.Cameras.Scene2D.Camera,
+    private readonly screenShake: ScreenShake,
     private readonly units: UnitLookup,
     private readonly bus: EventBus,
     private readonly flashBudget: FlashBudget,
@@ -117,6 +106,7 @@ export class ReactionFxView implements System {
         .setDepth(Depth.Fx)
         .setScale(REACTION_FX.debris.scale),
     );
+    this.movers = new Movers(this.smokePool, this.debrisPool);
     bus.on('reaction:triggered', this.handleReaction);
   }
 
@@ -137,15 +127,14 @@ export class ReactionFxView implements System {
   update(dt: number): void {
     this.stepBursts(dt);
     this.stepEmbers(dt);
-    this.stepMovers(dt);
+    this.movers.update(dt);
   }
 
   destroy(): void {
     this.bus.off('reaction:triggered', this.handleReaction);
     this.bursts.length = 0;
     this.embers.length = 0;
-    this.movers.length = 0;
-    this.moverPools.clear();
+    this.movers.clear();
     this.burstPool.destroy();
     this.emberPool.destroy();
     this.smokePool.destroy();
@@ -163,16 +152,10 @@ export class ReactionFxView implements System {
       return;
     }
     this.playBurst(at, this.kaboom.blast.radiusPx, REACTION_FX.kaboom);
-    this.playSmoke(at);
-    this.playDebris(at);
-    const { px, durationMs } = REACTION_FX.shake;
-    // force: a chain restarts the shake instead of stacking (or being ignored while one runs).
-    this.camera.shake(
-      durationMs,
-      new Phaser.Math.Vector2(px / this.camera.width, px / this.camera.height),
-      true,
-    );
-    this.shakes++;
+    this.movers.playSmoke(at, REACTION_FX.smoke);
+    this.movers.playDebris(at, REACTION_FX.debris);
+    // A chain restarts the shake instead of stacking; a smaller running shake gives way (§5c).
+    if (this.screenShake.shake(REACTION_FX.shake)) this.shakes++;
   };
 
   /**
@@ -253,86 +236,4 @@ export class ReactionFxView implements System {
       ember.trail.setPosition(tail.x, tail.y);
     }
   }
-
-  /** A rising column of ash puffs, staggered upward so it reads as a column, not a ring. */
-  private playSmoke(at: Vec2): void {
-    const { rises, riseMs, lifeMs, swayPx, startScale } = REACTION_FX.smoke;
-    rises.forEach((risePx, i) => {
-      const sway = (i - 1) * swayPx;
-      const from = { x: at.x + sway, y: at.y };
-      const image = this.smokePool
-        .acquire()
-        .setPosition(from.x, from.y)
-        .setScale(startScale)
-        .setAlpha(REACTION_FX.smoke.startAlpha);
-      const to = { x: from.x, y: from.y - risePx };
-      this.addMover(image, this.smokePool, from, to, 0, riseMs, lifeMs);
-    });
-  }
-
-  private playDebris(at: Vec2): void {
-    const { chips, lifeMs, distancesPx, hopPx } = REACTION_FX.debris;
-    for (let i = 0; i < chips; i++) {
-      const angle = ((i + 0.5) / chips) * Math.PI * 2;
-      const d = distancesPx[i % distancesPx.length] ?? 0;
-      const to = { x: at.x + Math.cos(angle) * d, y: at.y + Math.sin(angle) * d };
-      const image = this.debrisPool
-        .acquire()
-        .setPosition(at.x, at.y)
-        .setAlpha(1)
-        .setRotation(angle)
-        .setTint(DEBRIS_TINTS[i % DEBRIS_TINTS.length] ?? Palette.bark);
-      this.addMover(image, this.debrisPool, at, to, hopPx, lifeMs, lifeMs);
-    }
-  }
-
-  private addMover(
-    image: Phaser.GameObjects.Image,
-    pool: ImagePool,
-    from: Vec2,
-    to: Vec2,
-    arcPx: number,
-    moveMs: number,
-    lifeMs: number,
-  ): void {
-    this.moverPools.set(image, pool);
-    this.movers.push({ image, from, to, arcPx, moveMs, lifeMs, ageMs: 0 });
-  }
-
-  /** Smoke rises then lingers and fades; debris hops out and lands. */
-  private stepMovers(dt: number): void {
-    const { startScale, endScale, startAlpha } = REACTION_FX.smoke;
-    for (let i = this.movers.length - 1; i >= 0; i--) {
-      const mover = this.movers[i];
-      if (!mover) continue;
-      mover.ageMs += dt;
-      const pool = this.moverPools.get(mover.image);
-      if (mover.ageMs >= mover.lifeMs) {
-        pool?.release(mover.image);
-        this.moverPools.delete(mover.image);
-        this.movers.splice(i, 1);
-        continue;
-      }
-      const t = Math.min(1, mover.ageMs / mover.moveMs);
-      const life = mover.ageMs / mover.lifeMs;
-      const eased = Phaser.Math.Easing.Quadratic.Out(t);
-      const p = arcPoint(mover.from, mover.to, eased, mover.arcPx);
-      mover.image.setPosition(p.x, p.y);
-      if (pool === this.smokePool) {
-        mover.image
-          .setScale(startScale + (endScale - startScale) * life)
-          .setAlpha(startAlpha * (1 - life));
-      } else {
-        mover.image.setAlpha(1 - life * life);
-      }
-    }
-  }
-}
-
-/** Point at progress t on the straight line from → to, lifted by a sine arc peaking at `arcPx`. */
-function arcPoint(from: Vec2, to: Vec2, t: number, arcPx: number): Vec2 {
-  return {
-    x: from.x + (to.x - from.x) * t,
-    y: from.y + (to.y - from.y) * t - Math.sin(t * Math.PI) * arcPx,
-  };
 }

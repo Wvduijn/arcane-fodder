@@ -25,6 +25,14 @@ export const FIRE_BURST: BurstPalette = {
   core: Palette.flameWhite,
 } as const;
 
+/** Arcane Detonation (readability.md §5, style guide arcane family): cream core, violet body. */
+export const ARCANE_BURST: BurstPalette = {
+  rim: Palette.ink,
+  outer: Palette.arcane,
+  inner: Palette.arcaneLight,
+  core: Palette.cream,
+} as const;
+
 /** Radius of a burst's near-white core: what the §1.9 flash budget is asked about. */
 export function burstCoreRadiusPx(radiusPx: number): number {
   return radiusPx * BANDS.core;
@@ -33,20 +41,24 @@ export function burstCoreRadiusPx(radiusPx: number): number {
 /**
  * Draws a burst centred on the Graphics' local origin, reaching exactly `radiusPx` (readability §5:
  * the edge reaches the ring the hit rule uses). Clears first; position, scale and alpha are the
- * caller's.
+ * caller's. `coreRadiusPx` overrides the core size (§5c meteorlets hold it under the 16 px flash
+ * size); it never exceeds the inner band.
  */
 export function drawBurst(
   g: Phaser.GameObjects.Graphics,
   radiusPx: number,
   palette: BurstPalette,
   core: boolean,
+  coreRadiusPx: number = burstCoreRadiusPx(radiusPx),
 ): void {
   g.clear()
     .fillStyle(palette.outer)
     .fillCircle(0, 0, radiusPx)
     .fillStyle(palette.inner)
     .fillCircle(0, 0, radiusPx * BANDS.inner);
-  if (core) g.fillStyle(palette.core).fillCircle(0, 0, radiusPx * BANDS.core);
+  if (core) {
+    g.fillStyle(palette.core).fillCircle(0, 0, Math.min(coreRadiusPx, radiusPx * BANDS.inner));
+  }
   g.lineStyle(BANDS.rimPx, palette.rim).strokeCircle(0, 0, radiusPx - BANDS.rimPx / 2);
 }
 

@@ -6,12 +6,18 @@ import type { EventBus } from '../bus/EventBus';
 import type { CombatSystem } from './CombatSystem';
 import type { System } from './System';
 
+/** Runs just before the frame's death flush (Volunteer!: runners that fell detonate first). */
+export interface DeathFlushHook {
+  beforeDeathFlush(): void;
+}
+
 /**
  * Status ticks and expiry (GDD §6), after CombatSystem in the frame. Core's `stepStatuses` advances
  * every status on every living unit; each tick goes through `CombatSystem.applyHit` in order (a
  * tick kill is charred, a later tick on a unit that just died is a no-op). Then
  * `CombatSystem.flushDeaths` ends the frame's combat phase, so every death of the frame, hits and
- * ticks alike, resolves in one ascending-id batch (GDD §0). Last, `status:expired` for every
+ * ticks alike, resolves in one ascending-id batch (GDD §0); the {@link DeathFlushHook}s run first,
+ * and anything they kill joins the same batch. Last, `status:expired` for every
  * expiry core reports; core never lists one for a unit that died (a death is not an expiry).
  */
 export class StatusSystem implements System {
@@ -21,6 +27,7 @@ export class StatusSystem implements System {
     private readonly world: CombatWorld,
     private readonly combat: CombatSystem,
     private readonly bus: EventBus,
+    private readonly flushHooks: readonly DeathFlushHook[] = [],
     private readonly defs: Readonly<Record<StatusId, StatusDef>> = STATUSES,
   ) {}
 
@@ -35,6 +42,7 @@ export class StatusSystem implements System {
       this.combat.applyHit(tick.target, tick.hit);
       this.ticksApplied++;
     }
+    for (const hook of this.flushHooks) hook.beforeDeathFlush();
     this.combat.flushDeaths();
     for (const { id, status } of expired) this.bus.emit('status:expired', { id, status });
   }

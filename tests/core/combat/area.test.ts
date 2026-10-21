@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AreaBlastDef, EntityId, Team, Vec2 } from '@core/types';
 import {
+  applyAreaStatus,
   bodiesInRadius,
   resolveAreaEvent,
   type AreaBody,
@@ -359,5 +360,47 @@ describe('resolveAreaEvent: multiplied damage', () => {
     const halved = resolveAreaEvent(event(0.5), again.units, again.ctx);
     expect(KABOOM.damage * 0.5).toBeLessThan(GIBS.overkillRatio * GRUNT.maxHp);
     expect(halved.deaths[0]).toMatchObject({ gibbed: false, deathVariant: 'blood' });
+  });
+});
+
+describe('applyAreaStatus (Meteor burning ground, M6)', () => {
+  const event = (n = 900) =>
+    ({
+      centre: v(0, 0),
+      radiusPx: 90,
+      status: 'burning',
+      sourceId: id(n),
+      teams: ['enemy'],
+    }) as const;
+
+  it('applies the status to living enemies the ring touches (body rule), ascending id', () => {
+    const { ctx, units } = setup(
+      { n: 3, at: v(90 + GRUNT.bodyRadiusPx, 0) },
+      { n: 1, at: v(0, 10) },
+      { n: 2, at: v(90 + GRUNT.bodyRadiusPx + 0.01, 0) },
+      { n: 4, at: v(5, 0), team: 'squad', bodyRadiusPx: WIZARD_R },
+    );
+    const r = applyAreaStatus(event(), units, ctx);
+    expect(r).toEqual([
+      { target: 1, status: 'burning', result: 'applied' },
+      { target: 3, status: 'burning', result: 'applied' },
+    ]);
+    expect(ctx.world.get(id(1))?.statuses.get('burning')?.sourceId).toBe(900);
+    expect(ctx.world.get(id(4))?.statuses.size).toBe(0);
+  });
+
+  it('no damage, and a second tick refreshes', () => {
+    const { ctx, units } = setup({ n: 1, at: v(0, 0) });
+    applyAreaStatus(event(), units, ctx);
+    expect(applyAreaStatus(event(), units, ctx)).toEqual([
+      { target: 1, status: 'burning', result: 'refreshed' },
+    ]);
+    expect(ctx.world.get(id(1))?.hp).toBe(GRUNT.maxHp);
+  });
+
+  it('skips dead units and units without a position', () => {
+    const { ctx } = setup({ n: 1, at: v(0, 0) }, { n: 2, at: v(0, 0) });
+    ctx.world.markDead(id(1));
+    expect(applyAreaStatus(event(), [{ id: id(1), position: v(0, 0) }], ctx)).toEqual([]);
   });
 });

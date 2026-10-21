@@ -29,6 +29,17 @@ export const PlaceholderTextures = {
   /** Greyscale twins for a lost slot (readability.md §5b: `ash`/`slate`). */
   IconFireballLost: 'placeholder-icon-fireball-lost',
   IconLightningLost: 'placeholder-icon-lightning-lost',
+  /**
+   * HUD Volunteer! icon (readability.md §5c): a stepped 8-point arcane starburst under a tilted ink
+   * hat; greyscale twin for the unavailable look.
+   */
+  IconVolunteer: 'placeholder-icon-volunteer',
+  IconVolunteerLost: 'placeholder-icon-volunteer-lost',
+  /** Burning-ground flame lick, two flicker frames, ≤ 6×8 (readability.md §5c). */
+  GroundFlameA: 'placeholder-ground-flame-a',
+  GroundFlameB: 'placeholder-ground-flame-b',
+  /** Barrage bolt ground flash: near-white core 40% of the radius (§5c), 10 px radius. */
+  StrikeFlash: 'placeholder-strike-flash',
 } as const;
 
 /** One wizard texture per class: hat, robe and staff tip differ (readability.md §2). */
@@ -36,6 +47,15 @@ export const WizardTextures = {
   pyromancer: 'placeholder-wizard-pyromancer',
   stormcaller: 'placeholder-wizard-stormcaller',
 } as const satisfies Record<MageClassId, string>;
+
+/** Just the hat of each class (rows 0–5 of the wizard): the Arcane Detonation hat-fly (§5). */
+export const HatTextures = {
+  pyromancer: 'placeholder-hat-pyromancer',
+  stormcaller: 'placeholder-hat-stormcaller',
+} as const satisfies Record<MageClassId, string>;
+
+/** Rows of the wizard placeholders that are hat (brim included). */
+const HAT_ROWS = 6;
 
 /** Grunt wide with a raised weapon, archer narrow and hooded with a bow (readability.md §3). */
 export const EnemyTextures = {
@@ -82,6 +102,10 @@ export const STORM_FLASH_RADIUS_PX = 10;
 
 /** Its near-white centre (the inner half of the disc), for the §1.9 flash budget. */
 export const STORM_FLASH_CORE_RADIUS_PX = STORM_FLASH_RADIUS_PX * 0.5;
+
+/** Radius of the StrikeFlash texture, in texture px; its core is 40% of it (§5c: ≤ 40%). */
+export const STRIKE_FLASH_RADIUS_PX = 10;
+const STRIKE_FLASH_CORE_FRACTION = 0.4;
 
 /** Map tile size (tiled-conventions.md). Placeholder rendering only; M7 reads tilewidth from the map. */
 export const TILE_SIZE_PX = 16;
@@ -357,7 +381,57 @@ const ICON_LIGHTNING_PIXELS = [
   '..II........',
 ] as const;
 
-/** Style-guide colours (§4): ink, flame, flame-white, ember, cyan, bolt. */
+/** 10×10 stepped 8-point starburst: `arcane` body, `arcane-light` core; outlined to 12×12 below. */
+const VOLUNTEER_STAR_PIXELS = [
+  '....AA....',
+  '.A..AA..A.',
+  '..AAVVAA..',
+  '..AVVVVA..',
+  'AAVVVVVVAA',
+  'AAVVVVVVAA',
+  '..AVVVVA..',
+  '..AAVVAA..',
+  '.A..AA..A.',
+  '....AA....',
+] as const;
+
+/** A small tilted pointy hat silhouette in `ink`, laid over the star's top (12×12 frame). */
+const VOLUNTEER_HAT_PIXELS = [
+  '.........I..',
+  '........II..',
+  '.......III..',
+  '......IIII..',
+  '....IIIIIII.',
+] as const;
+
+/** HUD Volunteer! icon: the outlined star with the hat on top. */
+const ICON_VOLUNTEER_PIXELS = overlayPixels(
+  outlinePixels(VOLUNTEER_STAR_PIXELS),
+  VOLUNTEER_HAT_PIXELS,
+);
+
+/** Burning-ground flame lick (§5c): `ember` body, 1 px `flame` tip, near-white ≤ 2 px. */
+const GROUND_FLAME_A_PIXELS = [
+  '..F..',
+  '..E..',
+  '.FEE.',
+  '.EEE.',
+  'EEWEE',
+  'EEEEE',
+  '.EEE.',
+] as const;
+const GROUND_FLAME_B_PIXELS = [
+  '...F.',
+  '..EE.',
+  '.EEF.',
+  '.EEE.',
+  'EEWEE',
+  'EEEEE',
+  '.EEE.',
+] as const;
+const GROUND_FLAME_PALETTE: Palette = { E: '#f2581f', F: '#ffab2e', W: '#fff4c2' };
+
+/** Style-guide colours (§4): ink, flame, flame-white, ember, cyan, bolt, arcane, cream. */
 const ICON_PALETTE: Palette = {
   I: '#1a1020',
   O: '#ffab2e',
@@ -366,6 +440,8 @@ const ICON_PALETTE: Palette = {
   C: '#6fe7ff',
   B: '#fff36b',
 };
+
+const ICON_VOLUNTEER_PALETTE: Palette = { I: '#1a1020', A: '#9a3fe0', V: '#e07bff' };
 
 /** Lost-icon greys (style guide §4) and the luma split between them; ink outlines stay ink. */
 const LOST_ICON = { light: '#807a8c', dark: '#4f4a5e', ink: '#1a1020', lumaSplit: 150 } as const;
@@ -390,6 +466,18 @@ function greyscalePalette(palette: Palette): Palette {
 export function createPlaceholderTextures(textures: Phaser.Textures.TextureManager): void {
   drawPixelArt(textures, WizardTextures.pyromancer, PYROMANCER_PIXELS, PYROMANCER_PALETTE);
   drawPixelArt(textures, WizardTextures.stormcaller, STORMCALLER_PIXELS, STORMCALLER_PALETTE);
+  drawPixelArt(
+    textures,
+    HatTextures.pyromancer,
+    PYROMANCER_PIXELS.slice(0, HAT_ROWS),
+    PYROMANCER_PALETTE,
+  );
+  drawPixelArt(
+    textures,
+    HatTextures.stormcaller,
+    STORMCALLER_PIXELS.slice(0, HAT_ROWS),
+    STORMCALLER_PALETTE,
+  );
   drawPixelArt(textures, EnemyTextures['goblin-grunt'], GRUNT_PIXELS, GOBLIN_PALETTE);
   drawPixelArt(textures, EnemyTextures['goblin-archer'], ARCHER_PIXELS, GOBLIN_PALETTE);
   drawPixelArt(textures, PlaceholderTextures.FireBolt, FIRE_BOLT_PIXELS, FX_PALETTE);
@@ -406,6 +494,18 @@ export function createPlaceholderTextures(textures: Phaser.Textures.TextureManag
   const lostPalette = greyscalePalette(ICON_PALETTE);
   drawPixelArt(textures, PlaceholderTextures.IconFireballLost, ICON_FIREBALL_PIXELS, lostPalette);
   drawPixelArt(textures, PlaceholderTextures.IconLightningLost, ICON_LIGHTNING_PIXELS, lostPalette);
+  drawPixelArt(
+    textures,
+    PlaceholderTextures.IconVolunteer,
+    ICON_VOLUNTEER_PIXELS,
+    ICON_VOLUNTEER_PALETTE,
+  );
+  drawPixelArt(
+    textures,
+    PlaceholderTextures.IconVolunteerLost,
+    ICON_VOLUNTEER_PIXELS,
+    greyscalePalette(ICON_VOLUNTEER_PALETTE),
+  );
   // Fireball orb: 15 px across, stepped white → yellow → orange → red edge (hard steps, no soft pixels).
   drawDisc(textures, PlaceholderTextures.FireballOrb, 7.5, [
     { upTo: 0.35, color: '#ffffff' },
@@ -415,6 +515,23 @@ export function createPlaceholderTextures(textures: Phaser.Textures.TextureManag
   ]);
   drawDisc(textures, PlaceholderTextures.StormFlash, STORM_FLASH_RADIUS_PX, [
     { upTo: STORM_FLASH_CORE_RADIUS_PX / STORM_FLASH_RADIUS_PX, color: '#fff36b' },
+    { upTo: 0.8, color: '#6fe7ff' },
+    { upTo: 1, color: '#1a6a8a' },
+  ]);
+  drawPixelArt(
+    textures,
+    PlaceholderTextures.GroundFlameA,
+    GROUND_FLAME_A_PIXELS,
+    GROUND_FLAME_PALETTE,
+  );
+  drawPixelArt(
+    textures,
+    PlaceholderTextures.GroundFlameB,
+    GROUND_FLAME_B_PIXELS,
+    GROUND_FLAME_PALETTE,
+  );
+  drawDisc(textures, PlaceholderTextures.StrikeFlash, STRIKE_FLASH_RADIUS_PX, [
+    { upTo: STRIKE_FLASH_CORE_FRACTION, color: '#fff36b' },
     { upTo: 0.8, color: '#6fe7ff' },
     { upTo: 1, color: '#1a6a8a' },
   ]);
@@ -453,6 +570,34 @@ function drawDisc(
     }
   }
   texture.refresh();
+}
+
+/** Pads by 1 px and adds an `I` (ink) outline around every filled pixel, 4-connected. */
+function outlinePixels(rows: PixelRows): PixelRows {
+  const width = (rows[0]?.length ?? 0) + 2;
+  const filled = (x: number, y: number): boolean => {
+    const c = rows[y - 1]?.charAt(x - 1) ?? '';
+    return c !== '' && c !== '.';
+  };
+  return Array.from({ length: rows.length + 2 }, (_, y) =>
+    Array.from({ length: width }, (_, x) => {
+      if (filled(x, y)) return rows[y - 1]?.charAt(x - 1) ?? '.';
+      const near = filled(x - 1, y) || filled(x + 1, y) || filled(x, y - 1) || filled(x, y + 1);
+      return near ? 'I' : '.';
+    }).join(''),
+  );
+}
+
+/** `top`'s filled pixels drawn over `base`, from the top-left corner. */
+function overlayPixels(base: PixelRows, top: PixelRows): PixelRows {
+  return base.map((row, y) =>
+    Array.from(row)
+      .map((c, x) => {
+        const t = top[y]?.charAt(x) ?? '.';
+        return t !== '' && t !== '.' ? t : c;
+      })
+      .join(''),
+  );
 }
 
 function mirror(rows: PixelRows): PixelRows {

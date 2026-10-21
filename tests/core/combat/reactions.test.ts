@@ -193,6 +193,40 @@ describe('Combust (GDD §7)', () => {
     expect(r.reactions.map((x) => x.origin)).toEqual([2, 5]);
   });
 
+  it('reactionSourceId credits the Combust and its spread, not the hit (M6 Q3)', () => {
+    const STRIKE = id(900);
+    const REACTION = id(901);
+    const { ctx, world } = setup([
+      { n: 1, at: v(0, 0), burning: true, maxHp: 200 },
+      { n: 2, at: v(30, 0), maxHp: 200 },
+    ]);
+    const r = resolveAreaWithReactions(
+      {
+        centre: v(0, 0),
+        blast: SPELLS.lightning,
+        sourceId: STRIKE,
+        reactionSourceId: REACTION,
+        teams: ['enemy'],
+      },
+      ctx,
+    );
+    expect(r.reactions).toHaveLength(1);
+    expect(r.area.hits.map((h) => h.target)).toEqual([1]);
+    expect(r.reactions[0]?.area.hits.map((h) => h.target)).toEqual([1, 2]);
+    expect(r.reactions[0]?.sourceId).toBe(REACTION);
+    expect(world.get(id(2))?.statuses.get('burning')?.sourceId).toBe(REACTION);
+    const plain = setup([
+      { n: 1, at: v(0, 0), burning: true, maxHp: 200 },
+      { n: 2, at: v(30, 0) },
+    ]);
+    const plainResult = resolveAreaWithReactions(
+      { centre: v(0, 0), blast: SPELLS.lightning, sourceId: STRIKE, teams: ['enemy'] },
+      plain.ctx,
+    );
+    expect(plainResult.reactions[0]?.sourceId).toBe(STRIKE);
+    expect(plain.world.get(id(2))?.statuses.get('burning')?.sourceId).toBe(STRIKE);
+  });
+
   it('a keg in the Combust radius is triggered (32 + 8 px), one beyond is not', () => {
     const near = createKeg(id(20), v(40, 0));
     const far = createKeg(id(21), v(-40.01, 0));
@@ -289,6 +323,7 @@ describe('Kaboom (GDD §8)', () => {
         origin: id(20),
         spreadTo: [],
         consumed: false,
+        sourceId: id(20),
         area: r.area,
       },
     ]);
