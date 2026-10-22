@@ -18,7 +18,6 @@ import { clampAim } from '@core/spells/caster';
 import { createRng, type Rng } from '@core/rng/rng';
 import { slotPosition } from '@core/squad/squad';
 import { CLASSES } from '@data/classes';
-import { DEV_SQUAD } from '@data/devArena';
 import { ENEMIES } from '@data/enemies';
 import { MOVEMENT } from '@data/movement';
 import { REACTIONS } from '@data/reactions';
@@ -44,6 +43,10 @@ import type { StatusSystem } from '../systems/StatusSystem';
 import type { System } from '../systems/System';
 import type { TargetingSystem } from '../systems/TargetingSystem';
 import type { VolunteerDebug, VolunteerSystem } from '../systems/VolunteerSystem';
+import type { MissionDebug } from '../systems/MissionSystem';
+import type { PortalDebug } from '../systems/PortalSystem';
+import type { SpawnerDebug } from '../systems/SpawnerSystem';
+import { MISSION_DEBUG_HELP } from './MissionDebugKeys';
 import type { BurningOverlayView } from '../views/BurningOverlayView';
 import type { ConvergenceFxView } from '../views/ConvergenceFxView';
 import type { DeathPuffView } from '../views/DeathPuffView';
@@ -82,6 +85,8 @@ export interface DebugSnapshot {
   readonly convergence: ConvergenceDebugSnapshot;
   /** M6: cooldown, runners, detonations and the Hat Hill entries in the save (D4). */
   readonly volunteer: VolunteerDebugSnapshot;
+  /** M7: mission phase, timer, kills, objectives; portal and surge; huts, groups and triggers. */
+  readonly mission: MissionDebugSnapshot;
   /**
    * FX pools (spell, reaction, Convergence and Volunteer! FX, kegs): live/created must not grow
    * across restarts (D6).
@@ -278,6 +283,25 @@ export interface SquadDebugSnapshot {
   readonly lastLeaderChange: { readonly id: EntityId; readonly frame: number } | null;
 }
 
+export interface MissionDebugSnapshot {
+  readonly run: MissionDebug;
+  readonly portal: PortalDebug;
+  readonly spawner: SpawnerDebug;
+  /** Dynamic solids on the collision grid (kegs until Kaboom, huts and rubble). */
+  readonly solids: number;
+  /** Flow-field rebuilds this run (CD Q2). */
+  readonly navBuilds: number;
+}
+
+/** M7 systems the overlay reads. */
+export interface MissionDebugSources {
+  readonly run: { readonly debugState: MissionDebug };
+  readonly portal: { readonly debugState: PortalDebug };
+  readonly spawner: { readonly debugState: SpawnerDebug };
+  readonly collision: { readonly solidCount: number };
+  readonly navigation: { readonly buildCount: number };
+}
+
 export interface DebugHook {
   snapshot(): DebugSnapshot;
 }
@@ -297,6 +321,8 @@ export interface DebugSources {
   readonly camera: CameraController;
   readonly world: Rect;
   readonly attempt: number;
+  /** MissionDef.nameSeed (debug kill picks are seeded from it). */
+  readonly nameSeed: number;
   readonly combatWorld: CombatWorld;
   readonly enemies: EnemyAiSystem;
   readonly targeting: TargetingSystem;
@@ -316,6 +342,7 @@ export interface DebugSources {
   readonly volunteerFx: VolunteerFxView;
   readonly hatHill: SavedHatHill;
   readonly screenShake: ScreenShake;
+  readonly mission: MissionDebugSources;
 }
 
 export interface DebugOptions {
@@ -491,7 +518,7 @@ export class DebugOverlay implements System {
     this.labels = sources.squad.state.members.map(() =>
       scene.add.text(0, 0, '', LABEL_STYLE).setOrigin(0.5, 0.5).setDepth(Depth.Debug),
     );
-    this.killRng = createRng(attemptSeed(DEV_SQUAD.nameSeed, sources.attempt) ^ DEBUG_RNG_SALT);
+    this.killRng = createRng(attemptSeed(sources.nameSeed, sources.attempt) ^ DEBUG_RNG_SALT);
     sources.bus.on('unit:died', this.handleUnitDied);
     sources.bus.on('squad:leader-changed', this.handleLeaderChanged);
     sources.bus.on('unit:damaged', this.handleDamaged);
@@ -561,12 +588,14 @@ export class DebugOverlay implements System {
       ...this.spellLines(s),
       `kegs    ${s.kegs.map((k) => `#${String(k.id)} ${k.phase}${k.phase === 'fuse' ? ` ${formatSeconds(k.fuseRemainingMs)}${k.ringShown ? ' ring' : ''}` : ''}`).join('  ') || '-'}`,
       ...this.m6Lines(s),
+      ...missionLines(s.mission),
       `react   combust ${String(s.reactions.combusts)} kaboom ${String(s.reactions.kabooms)} kegs lit ${String(s.reactions.kegsTriggered)}  flashes ${String(s.reactions.flashes.granted)}/-${String(s.reactions.flashes.refused)} shakes ${String(s.reactions.shakes)}`,
       `fx      ${Object.entries(s.fxPools)
         .map(([name, pool]) => `${name} ${formatPool(pool)}`)
         .join(' ')}`,
       `events  dmg ${String(s.combat.events.damaged)} died ${String(s.combat.events.died)} burn +${String(s.combat.events.statusApplied)}/-${String(s.combat.events.statusExpired)} ticks ${String(s.combat.counters.statusTicks)} whiffs ${String(s.combat.counters.whiffs)}  after death ${String(s.combat.events.damagedAfterDeath + s.combat.events.statusAfterDeath)}`,
-      '[`] hide  [Backspace] restart  [K] kill leader  [L] kill follower  [G] respawn goblins  [B] burn nearest goblin  [T] corner  [C] fill meter  [J] kill volunteer',
+      '[`] hide  [Backspace] restart  [K] kill leader  [L] kill follower  [G] clear goblins, reset kegs  [B] burn nearest goblin  [T] corner  [C] fill meter  [J] kill volunteer',
+      MISSION_DEBUG_HELP,
     ];
     const content = lines.join('\n');
     if (this.text.text !== content) this.text.setText(content);
@@ -652,6 +681,13 @@ export class DebugOverlay implements System {
       reactions: this.reactionSnapshot(),
       convergence: this.convergenceSnapshot(),
       volunteer: this.volunteerSnapshot(),
+      mission: {
+        run: this.sources.mission.run.debugState,
+        portal: this.sources.mission.portal.debugState,
+        spawner: this.sources.mission.spawner.debugState,
+        solids: this.sources.mission.collision.solidCount,
+        navBuilds: this.sources.mission.navigation.buildCount,
+      },
       fxPools: this.fxPools(),
       teleport: { index: this.teleportIndex, leader: this.teleportLeader },
       marker: this.sources.marker.debugState,
@@ -1288,4 +1324,21 @@ function formatPool({ live, created }: PoolStats): string {
 
 function formatVec(v: Vec2, digits = 1): string {
   return `${v.x.toFixed(digits)}, ${v.y.toFixed(digits)}`;
+}
+
+/** M7 lines: mission run, portal and surge, huts and triggers. */
+function missionLines(m: MissionDebugSnapshot): string[] {
+  const { run, portal, spawner } = m;
+  const surge = portal.surge;
+  const huts = spawner.huts
+    .map(
+      (h) =>
+        `#${String(h.id)} ${h.phase}${h.phase === 'active' ? ` ${formatSeconds(h.untilSpawnMs)}${h.telling ? ' tell' : ''}` : ''} ${String(h.alive)}/alive`,
+    )
+    .join('  ');
+  return [
+    `mission ${run.phase}${run.outcome ? ` ${run.outcome}` : ''}  t ${formatSeconds(run.timeMs)}  kills ${String(run.kills)} lost ${String(run.lost)}  huts ${String(run.targetsDestroyed)}/${String(run.targetsRequired)}${run.resultShown ? '  results' : ''}`,
+    `portal  ${portal.phase} runes ${String(portal.runesLit)}/${String(portal.runeCount)}${portal.phase === 'opening' ? ` ${formatSeconds(portal.openingLeftMs)}` : ''}  surge ${surge.started ? `alive ${String(surge.alive)} queued ${String(surge.queued)} spawned ${String(surge.spawned)}${surge.finished ? ' done' : ''}` : '-'}  solids ${String(m.solids)}  nav ${String(m.navBuilds)}`,
+    `huts    ${huts || '-'}  triggers ${spawner.firedTriggers.join(',') || '-'}`,
+  ];
 }

@@ -54,6 +54,7 @@ import {
   type SquadState,
 } from '@core/squad/squad';
 import { createKeg, kegBodies, stepKegs, triggerKeg, type KegState } from '@core/structures/keg';
+import type { CollisionGrid } from '@core/world/collisionGrid';
 import { CLASSES } from '@data/classes';
 import { COMBAT, GIBS } from '@data/combat';
 import { DEV_ARENA, DEV_ENCOUNTER, DEV_KEG_PACK, DEV_KEGS, DEV_SQUAD } from '@data/devArena';
@@ -112,6 +113,9 @@ export class SpellSim {
   readonly fuses: Timed<EntityId>[] = [];
   readonly deaths: Timed<DeathRecord>[] = [];
   readonly lost: Timed<SpellId>[] = [];
+
+  /** M7: tile collision for squad, Fireball, knockback and the volunteer sprint. Set before running. */
+  collision: CollisionGrid | null = null;
 
   protected hooks: SpellSimHooks = {};
   protected readonly classes = new Map<EntityId, MageClassId>();
@@ -205,7 +209,15 @@ export class SpellSim {
       leaderPosition = clampToRect(leaderPosition, this.walkable, 0);
       this.squad = stepSquad(
         this.squad,
-        { leaderPosition, walkable: this.walkable, dtMs: dt, held: this.hooks.held?.() ?? false },
+        {
+          leaderPosition,
+          walkable: this.walkable,
+          dtMs: dt,
+          held: this.hooks.held?.() ?? false,
+          ...(this.collision
+            ? { collision: { grid: this.collision, bodyRadiusPx: MOVEMENT.wizardBodyRadiusPx } }
+            : {}),
+        },
         TRAIL,
         MOVEMENT,
       );
@@ -225,6 +237,7 @@ export class SpellSim {
         ...kegBodies(this.kegs, KEG, { solidOnly: true }),
       ],
       dtMs: dt,
+      ...(this.collision ? { collision: this.collision } : {}),
     });
     this.caster = step.state;
     for (const impact of step.impacts) {
@@ -278,6 +291,7 @@ export class SpellSim {
         bounds: DEV_ARENA,
         isAlive: (id) => this.world.isAlive(id),
         dtMs: dt,
+        ...(this.collision ? { collision: this.collision } : {}),
       },
     );
 

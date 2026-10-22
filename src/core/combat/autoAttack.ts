@@ -10,6 +10,11 @@
  *   `fire.aimAt` is the target's position now (no homing, no lead). Spawn the projectile with
  *   createProjectile at the wizard's position.
  *
+ * Sight (M7, CD Q3): with `input.collision`, blockers block target selection. A candidate behind a
+ * blocker or a hut is never picked, and a target that goes out of sight is dropped at once like
+ * one out of range (`lineOfSightTo`, selectTarget.ts: kegs never block; a hut is seen through its
+ * own footprint). Without it, every candidate is visible (open ground, M4–M6).
+ *
  * The caller only steps living wizards; a dead wizard has no auto-attack (D4).
  */
 import type { EntityId, ProjectileAttackDef, Vec2 } from '@core/types';
@@ -21,7 +26,13 @@ import {
   type Cooldown,
 } from '@core/combat/cooldown';
 import { distance } from '@core/math/vec2';
-import { selectTarget, shouldRetarget, type TargetCandidate } from '@core/targeting/selectTarget';
+import {
+  lineOfSightTo,
+  selectTarget,
+  shouldRetarget,
+  type TargetCandidate,
+} from '@core/targeting/selectTarget';
+import type { CollisionGrid } from '@core/world/collisionGrid';
 
 export interface AutoAttackState {
   readonly target: EntityId | null;
@@ -37,6 +48,8 @@ export interface AutoAttackInput {
   /** Enemy-side candidates (units, huts, kegs); dead ones are skipped. */
   readonly candidates: readonly TargetCandidate[];
   readonly dtMs: number;
+  /** Blockers block target selection (M7, CD Q3). Absent: everything is visible. */
+  readonly collision?: CollisionGrid;
 }
 
 export interface AutoAttackStep {
@@ -56,7 +69,9 @@ export function stepAutoAttack(state: AutoAttackState, input: AutoAttackInput): 
   const current = findValid(target, input);
   let aimAt = current?.position ?? null;
   if (shouldRetarget(sinceRetargetMs, input.retargetMs, current !== null)) {
-    target = selectTarget(input.position, input.attack.rangePx, input.candidates);
+    target = selectTarget(input.position, input.attack.rangePx, input.candidates, (c) =>
+      visible(c, input),
+    );
     sinceRetargetMs = 0;
     aimAt = target === null ? null : (findValid(target, input)?.position ?? null);
   }
@@ -72,5 +87,11 @@ function findValid(target: EntityId | null, input: AutoAttackInput): TargetCandi
   if (target === null) return null;
   const c = input.candidates.find((candidate) => candidate.id === target);
   if (!c?.alive || c.kind === 'keg') return null;
-  return distance(input.position, c.position) <= input.attack.rangePx ? c : null;
+  return distance(input.position, c.position) <= input.attack.rangePx && visible(c, input)
+    ? c
+    : null;
+}
+
+function visible(c: TargetCandidate, input: AutoAttackInput): boolean {
+  return input.collision ? lineOfSightTo(input.collision, input.position, c) : true;
 }

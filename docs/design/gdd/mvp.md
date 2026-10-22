@@ -894,6 +894,11 @@ Not enterable: walking onto it does nothing.
 | `surge.minSpawnDistancePx` | 160 | game-designer |
 | `extraction.radiusPx` (per mission) | **112** (7 tiles). **APPROVED** (Q8, gate). | level-designer |
 
+Data (M7): `PORTAL` (`openingMs`, `triggerRadiusPx`, `introPanMs` 3000) and `SURGE`
+(`minSpawnDistancePx`, `maxAlive` 12: surge enemies only; the §12 "≤ 12 on screen" peak counts every
+enemy, so leftover section goblins can exceed it — reviewer checks the live count at T18) live in `src/data/mission.ts`;
+`HUT` (§12) lives in `src/data/structures.ts` with `bodyRadiusPx` 32 (inscribed in the 64 px footprint).
+
 **Why 112 (Q8).** The leader triggers at ≤ 24 px (on the portal pad, which is now larger). A full
 trail stretches 78 px behind. The last follower ends up at ≤ 24 + 78 = 102 px when walking straight
 in. At 80 (the approved 32 px value), a squad walking in single file always loses its last wizard,
@@ -913,7 +918,8 @@ volunteers).
 
 **Results screen** (victory and defeat share it)
 - Header: Victory / Defeat.
-- Time: mission start to end, pause excluded, shown as mm:ss.
+- Time: from when the player gets control (after the intro pan, or at once if it's skipped) to
+  the end, pause excluded, shown as mm:ss (CD 2026-10-22).
 - Kills: enemy units only (huts are shown as "Huts 2/2").
 - Wizards saved: name and class.
 - Wizards lost: name, class and cause (`Fell in battle` / `Volunteered.` / `Left behind.`).

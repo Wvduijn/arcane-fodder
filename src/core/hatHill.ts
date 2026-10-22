@@ -2,7 +2,7 @@
  * Hat Hill (plan §4.2, §7.4, GDD §14): one hat per lost wizard, kept in the save. The epitaph
  * ("Fell in battle" / "Volunteered." / "Left behind.") is view text derived from `cause`, never
  * stored. The screen itself is post-MVP; M6 records `volunteer` entries at detonation, M7 adds
- * `combat` and `left-behind` at mission end.
+ * `combat` entries at death and `left-behind` entries at extraction (CD Q7).
  *
  * API:
  * - `fallenWizard(name, classId, missionId, cause)`: one entry. Throws on an empty name (every

@@ -1,21 +1,20 @@
 import type Phaser from 'phaser';
-import type {
-  CombatTuning,
-  DevEncounterSpawn,
-  EnemyDef,
-  EnemyId,
-  EntityId,
-  Rect,
-  Vec2,
-} from '@core/types';
+import type { CombatTuning, EnemyDef, EnemyId, EntityId, Rect, Vec2 } from '@core/types';
 import type { IdAllocator } from '@core/ids';
 import type { WizardView } from '@core/ai/goblin';
 import type { CombatWorld } from '@core/combat/world';
-import { createEnemy, knockEnemy, stepEnemies, type EnemyState } from '@core/enemies/enemyMovement';
-import { add } from '@core/math/vec2';
+import {
+  alertEnemies,
+  createEnemy,
+  knockEnemy,
+  stepEnemies,
+  type EnemyOptions,
+  type EnemyState,
+} from '@core/enemies/enemyMovement';
+import type { CollisionGrid } from '@core/world/collisionGrid';
+import type { FlowField } from '@core/world/flowField';
 import { clampToRect, insetRect } from '@core/math/movement';
 import { COMBAT } from '@data/combat';
-import { DEV_ENCOUNTER } from '@data/devArena';
 import { ENEMIES } from '@data/enemies';
 import { MOVEMENT } from '@data/movement';
 import { unitDepth } from '../depths';
@@ -58,9 +57,12 @@ export interface EnemyDebug {
 export interface EnemyAiSystemOptions {
   /** The scene run's one allocator, shared with the squad and projectiles (GDD §0). */
   readonly ids: IdAllocator;
-  /** Spawn offsets are relative to this point (the squad leader's spawn). */
-  readonly origin: Vec2;
-  readonly encounter?: readonly DevEncounterSpawn[];
+  /** Map blockers and solids (M7): bodies slide and are pushed out. Open ground when omitted. */
+  readonly collision?: CollisionGrid;
+  /** Flow field toward the wizards (M7, CD Q2); used only with `collision`. */
+  readonly navigation?: FlowField;
+  /** True on the steps the flow field's clock ticked; the step re-tests sight lines only then. */
+  readonly refreshNavigation?: () => boolean;
   readonly defs?: Readonly<Record<EnemyId, EnemyDef>>;
   readonly tuning?: CombatTuning;
 }
@@ -72,8 +74,8 @@ export interface EnemyAiSystemOptions {
  * bounds); the released attacks are queued for CombatSystem. Sprites only mirror the state: feet
  * position, y-sort, facing and the tell pose.
  *
- * Spawns `DEV_ENCOUNTER` around the squad's spawn at scene start; {@link respawn} (debug G)
- * despawns every goblin and spawns the encounter again with fresh ids.
+ * Goblins come in through {@link spawn} (SpawnerSystem, PortalSystem's surge); {@link despawnAll}
+ * (debug G) removes every goblin without a death.
  */
 export class EnemyAiSystem implements System, EnemyRoster {
   /** The rect enemy feet are clamped to (each body circle is inset further by its radius). */
@@ -89,6 +91,8 @@ export class EnemyAiSystem implements System, EnemyRoster {
   private readonly fallen = new Map<EntityId, Vec2>();
   private intents: EnemyAttackIntent[] = [];
   private whiffCount = 0;
+  /** Mission over (GDD §13 "enemies freeze"): brains and bodies stop, sprites hold their pose. */
+  private frozen = false;
   private readonly defs: Readonly<Record<EnemyId, EnemyDef>>;
   private readonly tuning: CombatTuning;
 
@@ -108,7 +112,6 @@ export class EnemyAiSystem implements System, EnemyRoster {
       bottom: 0,
       left: 0,
     });
-    this.spawnEncounter();
   }
 
   /** Grunt melee swings that whiffed (target out of range at release). */
@@ -173,18 +176,58 @@ export class EnemyAiSystem implements System, EnemyRoster {
     this.despawn(id);
   }
 
-  /** Debug G: every goblin despawns (no deaths), then the encounter spawns again. */
-  respawn(): void {
+  /** Debug G: every goblin despawns (no deaths, no kills). */
+  despawnAll(): void {
     for (const enemy of [...this.enemies]) {
       this.world.remove(enemy.id);
       this.despawn(enemy.id);
     }
     this.intents = [];
-    this.spawnEncounter();
+  }
+
+  /** Living and dead-this-frame goblins in the list (debug, restart leak log). */
+  get count(): number {
+    return this.enemies.length;
+  }
+
+  /** Stop every brain and body for good this run (mission ended). */
+  freeze(): void {
+    this.frozen = true;
+    this.intents = [];
+  }
+
+  /**
+   * One goblin at `position` (feet), pushed out of any solid, with core's options (surge aggro
+   * `always`, an archer post). Returns its id; HP goes into the CombatWorld.
+   */
+  spawn(enemy: EnemyId, position: Vec2, options: EnemyOptions = {}): EntityId {
+    const def = this.defs[enemy];
+    const id = this.options.ids.next();
+    const clamped = clampToRect(position, this.bounds, def.bodyRadiusPx);
+    const placed = this.options.collision
+      ? this.options.collision.pushOut(clamped, def.bodyRadiusPx)
+      : clamped;
+    const state = createEnemy(id, def, placed, options);
+    // Fresh ids are always the highest, so the list stays in ascending id order.
+    this.enemies.push(state);
+    this.world.add({ id, team: 'enemy', maxHp: def.maxHp, bodyRadiusPx: def.bodyRadiusPx });
+    const sprite = this.scene.add
+      .image(placed.x, placed.y, EnemyTextures[enemy])
+      .setOrigin(CHARACTER_ANCHOR.x, CHARACTER_ANCHOR.y)
+      .setScale(PLACEHOLDER_WIZARD_SCALE);
+    this.sprites.set(id, sprite);
+    this.syncSprite(state);
+    return id;
+  }
+
+  /** Trigger `alert-group`: these goblins aggro the squad at any range from now on. */
+  alert(ids: ReadonlySet<EntityId>): void {
+    this.enemies = alertEnemies(this.enemies, ids);
   }
 
   update(dt: number): void {
     this.fallen.clear();
+    if (this.frozen) return;
     // Sprinting volunteers too: they are still squad-team units enemies can hit (M6).
     const wizards: WizardView[] = this.squad.units.map((member) => ({
       id: member.id,
@@ -198,6 +241,11 @@ export class EnemyAiSystem implements System, EnemyRoster {
       bounds: this.bounds,
       isAlive: (id) => this.world.isAlive(id),
       dtMs: dt,
+      ...(this.options.collision ? { collision: this.options.collision } : {}),
+      ...(this.options.navigation ? { navigation: this.options.navigation } : {}),
+      ...(this.options.refreshNavigation
+        ? { refreshNavigation: this.options.refreshNavigation() }
+        : {}),
     });
     this.enemies = [...result.enemies];
 
@@ -236,28 +284,6 @@ export class EnemyAiSystem implements System, EnemyRoster {
     this.fallen.clear();
     this.enemies = [];
     this.intents = [];
-  }
-
-  private spawnEncounter(): void {
-    const encounter = this.options.encounter ?? DEV_ENCOUNTER;
-    for (const spawn of encounter) {
-      const def = this.defs[spawn.enemy];
-      const id = this.options.ids.next();
-      const position = clampToRect(
-        add(this.options.origin, spawn.offset),
-        this.bounds,
-        def.bodyRadiusPx,
-      );
-      this.enemies.push(createEnemy(id, def, position));
-      this.world.add({ id, team: 'enemy', maxHp: def.maxHp, bodyRadiusPx: def.bodyRadiusPx });
-      const sprite = this.scene.add
-        .image(position.x, position.y, EnemyTextures[spawn.enemy])
-        .setOrigin(CHARACTER_ANCHOR.x, CHARACTER_ANCHOR.y)
-        .setScale(PLACEHOLDER_WIZARD_SCALE);
-      this.sprites.set(id, sprite);
-    }
-    // Fresh ids are always the highest, so the list stays in ascending id order.
-    for (const enemy of this.enemies) this.syncSprite(enemy);
   }
 
   private despawn(id: EntityId): void {

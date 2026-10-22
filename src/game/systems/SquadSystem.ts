@@ -17,6 +17,7 @@ import { clampToRect, insetRect, stepPosition } from '@core/math/movement';
 import { attemptSeed, generateRecruitNames } from '@core/names/recruitNames';
 import { createRng } from '@core/rng/rng';
 import { stepSquad } from '@core/squad/follow';
+import type { CollisionGrid } from '@core/world/collisionGrid';
 import {
   createSquad,
   killSquadMembers,
@@ -36,7 +37,6 @@ import {
   type VolunteerStepInput,
 } from '@core/squad/volunteer';
 import { COMBAT } from '@data/combat';
-import { DEV_SQUAD } from '@data/devArena';
 import { MOVEMENT } from '@data/movement';
 import { RECRUIT_NAMES } from '@data/names';
 import { TRAIL } from '@data/trail';
@@ -71,14 +71,17 @@ export interface SquadSystemOptions {
   readonly attempt: number;
   /** The scene run's one allocator (shared with enemies), so ids stay unique and ascending (GDD §0). */
   readonly ids: IdAllocator;
-  /** Class of each recruit, leader first. Squad size = its length. */
-  readonly classes?: readonly MageClassId[];
-  readonly nameSeed?: number;
+  /** Class of each recruit, leader first (MissionDef.squad). Squad size = its length. */
+  readonly classes: readonly MageClassId[];
+  /** MissionDef.nameSeed; restart n names with nameSeed + n (GDD Q17). */
+  readonly nameSeed: number;
   readonly trail?: TrailTuning;
   readonly movement?: MovementTuning;
   readonly combat?: CombatTuning;
   /** Read every frame; never held when omitted. */
   readonly hold?: SquadHold;
+  /** Map blockers and solids (M7): the leader slides, followers are pushed out. Open ground when omitted. */
+  readonly collision?: CollisionGrid;
 }
 
 /** One wizard death as the killer resolved it. Debug kills: `combat`, `blood`, not gibbed. */
@@ -103,7 +106,7 @@ export interface SquadDeath {
  * Walkable is the world inset by the sprite's extent above the feet at the top (so the whole
  * sprite stays on the map) and by the body radius on the other sides; leader and followers share
  * it. Recruits get seeded names, unique within the squad, kept here by id (presentation), and a
- * class each (DEV_SQUAD.classes, leader first) that picks the placeholder texture.
+ * class each (MissionDef.squad, leader first) that picks the placeholder texture.
  */
 export class SquadSystem implements System, LeaderSource, UnitLookup {
   /** The rect every wizard's feet are clamped to. */
@@ -124,6 +127,7 @@ export class SquadSystem implements System, LeaderSource, UnitLookup {
   private readonly trail: TrailTuning;
   private readonly movement: MovementTuning;
   private readonly combat: CombatTuning;
+  private readonly collision: CollisionGrid | null;
 
   constructor(
     scene: Phaser.Scene,
@@ -133,12 +137,13 @@ export class SquadSystem implements System, LeaderSource, UnitLookup {
     start: Vec2,
     options: SquadSystemOptions,
   ) {
-    const classes = options.classes ?? DEV_SQUAD.classes;
+    const { classes } = options;
     const size = classes.length;
     this.trail = options.trail ?? TRAIL;
     this.movement = options.movement ?? MOVEMENT;
     this.combat = options.combat ?? COMBAT;
     this.hold = options.hold ?? null;
+    this.collision = options.collision ?? null;
 
     const body = this.movement.wizardBodyRadiusPx;
     this.walkable = insetRect(world, {
@@ -150,7 +155,7 @@ export class SquadSystem implements System, LeaderSource, UnitLookup {
 
     const recruits = classes.map((mageClass) => ({ id: options.ids.next(), mageClass }));
     const memberIds = recruits.map(({ id }) => id);
-    const nameRng = createRng(attemptSeed(options.nameSeed ?? DEV_SQUAD.nameSeed, options.attempt));
+    const nameRng = createRng(attemptSeed(options.nameSeed, options.attempt));
     const names = generateRecruitNames(nameRng, RECRUIT_NAMES, size);
     this.names = new Map(memberIds.map((id, i) => [id, names[i] ?? '']));
     this.classes = new Map(recruits.map(({ id, mageClass }) => [id, mageClass]));
@@ -288,7 +293,20 @@ export class SquadSystem implements System, LeaderSource, UnitLookup {
     const leaderPosition = clampToRect(stepped, this.walkable, 0);
     this.squad = stepSquad(
       this.squad,
-      { leaderPosition, walkable: this.walkable, dtMs: dt, held: this.held },
+      {
+        leaderPosition,
+        walkable: this.walkable,
+        dtMs: dt,
+        held: this.held,
+        ...(this.collision
+          ? {
+              collision: {
+                grid: this.collision,
+                bodyRadiusPx: this.movement.wizardBodyRadiusPx,
+              },
+            }
+          : {}),
+      },
       this.trail,
       this.movement,
     );

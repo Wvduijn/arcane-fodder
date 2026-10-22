@@ -12,7 +12,10 @@
  *   telegraph has fully elapsed. Fireballs fly (projectile.ts, swept, no tunnelling): one explodes
  *   at the contact point on the first body of `input.hitBodies` it touches (living enemy units,
  *   huts, kegs: whatever the caller lists; wizards are simply not listed, so it passes them), or
- *   exactly at its clamped aim point when it gets there. Impacts in pending order (cast order).
+ *   exactly at its clamped aim point when it gets there. With `input.collision` (M7) it also
+ *   explodes where it enters the first blocker tile (GDD §4: trunks stop it; a hut's footprint
+ *   counts as a hit on the hut when the hut is in `hitBodies`). Impacts in pending order (cast
+ *   order).
  * - `castSpell(state, request, spells, tuning)`: a press of slot 1 or 2, after `stepCaster`.
  *   In this order:
  *   1. No spell in that slot: `ignored` (`no-spell`).
@@ -56,6 +59,7 @@ import {
 import { createProjectile, stepProjectile, type Projectile } from '@core/combat/projectile';
 import type { SpellSlot } from '@core/spells/availability';
 import { add, distance, normalize, scale, sub } from '@core/math/vec2';
+import type { CollisionGrid } from '@core/world/collisionGrid';
 
 export type SpellDefs = Readonly<Record<SpellId, SpellDef>>;
 
@@ -91,6 +95,8 @@ export interface CasterStepInput {
   /** Bodies a Fireball explodes on (living enemy units, huts, kegs). Dead ones are skipped. */
   readonly hitBodies: readonly AreaBody[];
   readonly dtMs: number;
+  /** Blockers (M7): a Fireball explodes on the first one it enters. Absent: open ground. */
+  readonly collision?: CollisionGrid;
 }
 
 export interface SpellImpact {
@@ -156,8 +162,8 @@ export function stepCaster(state: CasterState, input: CasterStepInput): CasterSt
       else impacts.push(impactOf(p, p.at, null));
       continue;
     }
-    const s = stepProjectile(p.projectile, dtMs, bodies);
-    if (s.hit !== null) impacts.push(impactOf(p, s.projectile.position, s.hit));
+    const s = stepProjectile(p.projectile, dtMs, bodies, input.collision);
+    if (s.hit !== null || s.blocked) impacts.push(impactOf(p, s.projectile.position, s.hit));
     else if (s.expired) impacts.push(impactOf(p, p.at, null));
     else pending.push({ ...p, projectile: s.projectile });
   }

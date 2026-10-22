@@ -1,0 +1,97 @@
+{
+  "objects": [
+    {
+      "name": "squad-start",
+      "type": "squad-start",
+      "x": 96,
+      "y": 224,
+      "properties": { "facing": "e" }
+    },
+    { "name": "safe-start", "type": "safe-start", "x": 48, "y": 176, "w": 128, "h": 96 },
+    {
+      "name": "sec-01",
+      "type": "section",
+      "x": 32,
+      "y": 32,
+      "w": 704,
+      "h": 448,
+      "properties": { "index": 1, "label": "Stub" }
+    },
+    {
+      "name": "trig-mid",
+      "type": "trigger",
+      "x": 320,
+      "y": 192,
+      "w": 32,
+      "h": 80,
+      "properties": { "event": "activate-group", "group": "grunts-mid" }
+    },
+    {
+      "name": "grunts-mid-01",
+      "type": "enemy-spawn",
+      "x": 400,
+      "y": 320,
+      "properties": {
+        "enemy": "goblin-grunt",
+        "group": "grunts-mid",
+        "count": 3,
+        "trigger": "trig-mid"
+      }
+    },
+    {
+      "name": "archer-01",
+      "type": "archer-post",
+      "x": 440,
+      "y": 120,
+      "properties": { "group": "archers", "facing": "s", "holdRadius": 32 }
+    },
+    {
+      "name": "surge-01-a",
+      "type": "surge-spawn",
+      "x": 600,
+      "y": 400,
+      "properties": {
+        "wave": "surge-01",
+        "enemy": "goblin-grunt",
+        "count": 4,
+        "radius": 24,
+        "delayMs": 0
+      }
+    },
+    {
+      "name": "hut-01",
+      "type": "goblin-hut",
+      "x": 192,
+      "y": 112,
+      "properties": { "runeIndex": 0 }
+    },
+    {
+      "name": "hut-01-door",
+      "type": "hut-spawn",
+      "x": 192,
+      "y": 160,
+      "properties": { "hut": "hut-01" }
+    },
+    {
+      "name": "portal",
+      "type": "portal",
+      "x": 640,
+      "y": 224,
+      "properties": { "radiusPx": 112, "runeCount": 1 }
+    },
+    {
+      "name": "keg-01",
+      "type": "powder-keg",
+      "x": 360,
+      "y": 120,
+      "properties": { "chain": false }
+    },
+    {
+      "name": "stump-01",
+      "type": "prop",
+      "x": 260,
+      "y": 380,
+      "properties": { "sprite": "env/stump-small", "scale": { "type": "float", "value": 1 } }
+    }
+  ]
+}

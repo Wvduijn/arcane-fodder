@@ -14,11 +14,19 @@
  *   shots hit `squad` bodies; own team and `neutral` (kegs) are passed through, and dead bodies are
  *   never hit (D4). On a hit the projectile stops at the contact point.
  *
+ * - `stepProjectile(p, dtMs, bodies, grid)` (M7): the same, but the flight also ends on the first
+ *   shot-blocking tile its centre enters along this frame's segment (`grid.castSegment`: blockers,
+ *   huts and rubble; never kegs, GDD §3, §12). A body touched before the tile is hit as usual. A
+ *   tile owned by a living body of the opposing team (a hut: autos and Fireball hit it on its
+ *   footprint) is a hit on that body, at the tile edge; any other tile ends the flight there with
+ *   `blocked: true` and no hit. Without a grid nothing is ever blocked (open ground, M4–M6).
+ *
  * The shooter is not consulted after creation: a projectile from a dead shooter still resolves
- * (GDD §3), carrying the shooter's id as the hit's source. Collision tiles come with M7's tilemap.
+ * (GDD §3), carrying the shooter's id as the hit's source.
  */
 import type { DamageSourceDef, EntityId, ProjectileAttackDef, Team, Vec2 } from '@core/types';
 import { add, normalize, scale, sub } from '@core/math/vec2';
+import type { CollisionGrid } from '@core/world/collisionGrid';
 
 export interface Projectile {
   readonly id: EntityId;
@@ -61,6 +69,8 @@ export interface ProjectileStep {
   readonly hit: EntityId | null;
   /** Reached max travel without hitting. Remove the projectile. */
   readonly expired: boolean;
+  /** Stopped on a blocker tile without hitting (M7). Remove the projectile. */
+  readonly blocked: boolean;
 }
 
 /** Float slack when comparing contact distances along the path (not a tuning value). */
@@ -89,6 +99,7 @@ export function stepProjectile(
   p: Projectile,
   dtMs: number,
   bodies: readonly ProjectileBody[],
+  grid?: CollisionGrid,
 ): ProjectileStep {
   const stepPx = Math.max(
     0,
@@ -115,7 +126,19 @@ export function stepProjectile(
       hitAt = t;
     }
   }
-  const moved = hit === null ? stepPx : hitAt;
+  let blocked = false;
+  const wall = grid?.castSegment(p.position, add(p.position, scale(p.direction, stepPx)));
+  if (wall && wall.distancePx < hitAt) {
+    const owner = wall.owner;
+    const struck =
+      owner === null
+        ? undefined
+        : bodies.find((b) => b.id === owner && b.alive && b.team === opposing);
+    hit = struck ? struck.id : null;
+    hitAt = wall.distancePx;
+    blocked = !struck;
+  }
+  const moved = hit === null && !blocked ? stepPx : hitAt;
   const projectile: Projectile = {
     ...p,
     position: add(p.position, scale(p.direction, moved)),
@@ -124,7 +147,8 @@ export function stepProjectile(
   return {
     projectile,
     hit,
-    expired: hit === null && projectile.travelledPx >= p.maxTravelPx - EPSILON_PX,
+    expired: hit === null && !blocked && projectile.travelledPx >= p.maxTravelPx - EPSILON_PX,
+    blocked,
   };
 }
 

@@ -90,7 +90,9 @@ export type EnemyId = 'goblin-grunt' | 'goblin-archer';
 /** Granted spells (plan §3.1). */
 export type SpellId = 'fireball' | 'lightning';
 export type ReactionId = 'combust' | 'kaboom';
-export type StructureId = 'powder-keg';
+export type StructureId = 'powder-keg' | 'goblin-hut';
+/** What a destroy objective counts (plan §4.4). MVP: huts only. */
+export type TargetId = 'goblin-hut';
 export type StatusId = 'burning';
 /** How an enemy death looks, from the killing blow (GDD §12a). */
 export type DeathVariantId = 'charred' | 'electrified' | 'blood';
@@ -196,7 +198,7 @@ export interface GibTuning {
   readonly maxGibbedPerEvent: number;
 }
 
-/** One enemy in the dev encounter, placed relative to the squad's spawn. Until M7's waves. */
+/** One enemy in the dev encounter, placed relative to the squad's spawn. Test fixtures since M7 (Q5). */
 export interface DevEncounterSpawn {
   readonly enemy: EnemyId;
   readonly offset: Vec2;
@@ -264,14 +266,14 @@ export interface KegDef {
   readonly footprintPx: number;
 }
 
-/** One keg in the dev arena, relative to the squad's spawn. Until M7's map. */
+/** One keg in the dev arena, relative to the squad's spawn. Test fixtures since M7 (Q5). */
 export interface DevKegSpawn {
   readonly offset: Vec2;
 }
 
 export type ConvergenceId = 'meteor' | 'thunderstorm' | 'firestorm';
-/** Missions with an id. The dev arena until M7 adds m01-goblin-woods. */
-export type MissionId = 'dev-arena';
+/** Missions with an id. `'dev-arena'` stays so dev Hat Hill entries survive a load (CD 2026-10-21). */
+export type MissionId = 'dev-arena' | 'm01-goblin-woods';
 
 /** Leaves burning ground that applies a status to enemy units inside on every tick (GDD §10 Meteor). */
 export interface GroundBurnDef {
@@ -348,4 +350,117 @@ export interface FallenWizard {
   readonly classId: MageClassId;
   readonly missionId: MissionId;
   readonly cause: DeathCause;
+}
+
+export type MissionOutcome = 'victory' | 'defeat';
+/** `'always'` ignores aggroRadiusPx and converges on the nearest wizard from spawn (GDD §13, ADR 0007). */
+export type WaveAggro = 'radius' | 'always';
+
+/** Goblin Hut (GDD §12). Tiled `goblin-hut` properties may override the spawn fields per hut. */
+export interface HutDef {
+  readonly id: 'goblin-hut';
+  readonly target: TargetId;
+  readonly maxHp: number;
+  /** Square footprint side; also marked in the map's `blockers` layer. */
+  readonly footprintPx: number;
+  readonly bodyRadiusPx: number;
+  /** Spawns only while the leader is within this distance. */
+  readonly activateRadiusPx: number;
+  readonly firstSpawnDelayMs: number;
+  readonly spawnIntervalMs: number;
+  /** Per hut, counting its living spawns. */
+  readonly maxAlive: number;
+  /** Door glow before each spawn. */
+  readonly spawnTellMs: number;
+  readonly spawnEnemy: EnemyId;
+}
+
+/** Portal tuning (GDD §13). Per-mission numbers (extraction radius) live in MissionDef. */
+export interface PortalTuning {
+  /** From the last rune to enterable. */
+  readonly openingMs: number;
+  /** Extraction triggers when the leader's centre is this close to the portal centre. */
+  readonly triggerRadiusPx: number;
+  /** Intro camera pan start → portal → start, skippable. */
+  readonly introPanMs: number;
+}
+
+/** Final surge tuning (GDD §12 power curve, §13). */
+export interface SurgeTuning {
+  /** A surge point closer than this to any wizard is skipped; its share moves to the next point. */
+  readonly minSpawnDistancePx: number;
+  /** Surge enemies alive at once; held-back spawns release as they die. */
+  readonly maxAlive: number;
+}
+
+/** Enemy navigation (M7, CD Q2): flow field toward the wizards on the tile grid. */
+export interface NavigationTuning {
+  /** The field is rebuilt this often; enemies use it only when the straight line is blocked. */
+  readonly flowFieldRebuildMs: number;
+}
+
+export interface DestroyObjectiveDef {
+  readonly kind: 'destroy';
+  readonly target: TargetId;
+  readonly count: number;
+}
+export type ObjectiveDef = DestroyObjectiveDef;
+
+export interface FinalSurgeDef {
+  /** Every `surge-spawn` map object whose `wave` equals this id. */
+  readonly waveId: string;
+  readonly spawnPoints: 'all-remaining';
+  readonly aggro: WaveAggro;
+}
+
+export interface PortalExtractionDef {
+  readonly kind: 'portal';
+  /** Name of the `portal` map object. */
+  readonly spawnId: string;
+  /** Wizards whose centre is within this of the portal centre are saved (GDD §13, Q8). */
+  readonly radiusPx: number;
+  readonly finalSurge: FinalSurgeDef;
+}
+
+/** One mission (plan §4.4): what it is. The map holds where (tiled-conventions.md §6). */
+export interface MissionDef {
+  readonly id: MissionId;
+  readonly name: string;
+  /** Relative to public/assets/. */
+  readonly map: string;
+  /** Leader first (GDD Q18). */
+  readonly squad: readonly MageClassId[];
+  /** Restart n uses nameSeed + n (GDD Q17). */
+  readonly nameSeed: number;
+  /** Name of the `squad-start` map object; the single one when absent (ADR 0007). */
+  readonly start?: { readonly spawnId: string };
+  readonly objectives: readonly ObjectiveDef[];
+  readonly extraction: PortalExtractionDef;
+}
+
+/** A wizard on the results screen (GDD §14). */
+export interface WizardRecord {
+  readonly name: string;
+  readonly classId: MageClassId;
+}
+
+export interface LostWizardRecord extends WizardRecord {
+  readonly cause: DeathCause;
+}
+
+/** Results screen input (GDD §14), built by core at mission end. */
+export interface MissionResult {
+  readonly missionId: MissionId;
+  readonly outcome: MissionOutcome;
+  /** Mission start to end, pause excluded. */
+  readonly timeMs: number;
+  /** Enemy units only; huts are counted as targets. */
+  readonly kills: number;
+  readonly targetsDestroyed: number;
+  readonly targetsRequired: number;
+  readonly saved: readonly WizardRecord[];
+  /** In order of loss. */
+  readonly lost: readonly LostWizardRecord[];
+  readonly bestTimeMs: number | null;
+  readonly newBest: boolean;
 }

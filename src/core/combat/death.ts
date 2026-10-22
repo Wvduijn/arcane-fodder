@@ -12,6 +12,9 @@
  * - `killUnit(world, id, cause)`: a kill without a damage source (debug kill, Volunteer!, left
  *   behind): blood, not gibbed. Null if the unit is dead or unknown.
  * - `resolveFrameDeaths(records)`: one frame's deaths, one per id, in ascending EntityId order.
+ * - `isStructureDeath(record)`: the record is a structure's (M7 hut): the flush emits
+ *   `hut:destroyed` for it, never `unit:died`, and it counts as no kill (GDD §14).
+ *   `structureOf(unit)` is the record part that carries it.
  */
 import type {
   DamageElement,
@@ -20,6 +23,7 @@ import type {
   DeathVariantId,
   EntityId,
   GibTuning,
+  StructureId,
   Team,
 } from '@core/types';
 import type { CombatWorld } from '@core/combat/world';
@@ -31,6 +35,11 @@ export interface DeathRecord {
   readonly cause: DeathCause;
   readonly deathVariant: DeathVariantId;
   readonly gibbed: boolean;
+  /**
+   * Set when a structure fell (a hut, M7): emit `hut:destroyed`, never `unit:died`; it is no kill.
+   * Absent for units.
+   */
+  readonly structure?: StructureId;
 }
 
 /** The parts of a damage source that decide how a kill looks. */
@@ -66,7 +75,21 @@ export function isGibKill(
 export function killUnit(world: CombatWorld, id: EntityId, cause: DeathCause): DeathRecord | null {
   const unit = world.get(id);
   if (!unit || !world.markDead(id)) return null;
-  return { id, team: unit.team, cause, deathVariant: PLAIN, gibbed: false };
+  return { id, team: unit.team, cause, deathVariant: PLAIN, gibbed: false, ...structureOf(unit) };
+}
+
+/** `{ structure }` for a structure's record, `{}` for a unit's. */
+export function structureOf(unit: {
+  readonly structure?: StructureId;
+}): { readonly structure: StructureId } | Record<string, never> {
+  return unit.structure === undefined ? {} : { structure: unit.structure };
+}
+
+/** A structure's death (a hut): `hut:destroyed`, not `unit:died`, and no kill. */
+export function isStructureDeath(
+  record: DeathRecord,
+): record is DeathRecord & { readonly structure: StructureId } {
+  return record.structure !== undefined;
 }
 
 /** One frame's deaths, deduplicated by id (first record wins), in ascending EntityId order. */

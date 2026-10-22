@@ -33,7 +33,9 @@
  *   id, detonates at the first of (GDD §11):
  *   - `death`: dead in the world (killed since the last step): where it fell, no move.
  *   - `contact`: its body touches a living body of `input.contacts` (enemy units, huts), at the
- *     exact touching point along this frame's straight-line move (swept, no tunnelling).
+ *     exact touching point along this frame's straight-line move (swept, no tunnelling). With
+ *     `input.collision` (M7), running into a blocker or a solid (keg, hut footprint) is a contact
+ *     too, where its body first touches it (within 1/8 px): a rookie never runs through a tree.
  *   - `arrived`: it reaches the aim point.
  *   - `fuse`: `fuseMs` after activation, at the point it had reached by then.
  *   The move is `sprintSpeed` straight at the aim: no separation, no autos, no knockback. When
@@ -61,6 +63,7 @@ import type { Rng } from '@core/rng/rng';
 import { clampAim } from '@core/spells/caster';
 import type { Roster } from '@core/squad/roster';
 import { killSquadMembers, type SquadState } from '@core/squad/squad';
+import type { CollisionGrid } from '@core/world/collisionGrid';
 
 export interface VolunteerRunner {
   readonly id: EntityId;
@@ -111,6 +114,8 @@ export interface VolunteerStepInput {
   readonly contacts: readonly AreaBody[];
   /** The runner's own body (MovementTuning.wizardBodyRadiusPx). */
   readonly runnerRadiusPx: number;
+  /** Blockers and solids (M7): touching one detonates. Absent: open ground. */
+  readonly collision?: CollisionGrid;
 }
 
 export interface VolunteerStep {
@@ -223,6 +228,8 @@ export function pickBark(count: number, rng: Rng, last: number | null): number {
 const EPSILON_MS = 1e-6;
 /** Float slack for touching and arriving, in px (not a tuning value). */
 const EPSILON_PX = 1e-9;
+/** Float slack on a swept wall distance, in px (not a tuning value). */
+const SWEEP_SLACK_PX = 1e-6;
 
 function denied(
   state: VolunteerState,
@@ -249,7 +256,15 @@ function stepRunner(
   const reach = Math.min(gap, (tuning.sprintSpeed * travelMs) / 1000);
   const dir = gap > 0 ? normalize(sub(r.target, r.position)) : { x: 0, y: 0 };
 
-  const touch = firstContact(r.position, dir, reach, bodies, input.runnerRadiusPx);
+  const body = firstContact(r.position, dir, reach, bodies, input.runnerRadiusPx);
+  const wall = input.collision?.sweepCircle(
+    r.position,
+    add(r.position, scale(dir, reach)),
+    input.runnerRadiusPx,
+  );
+  // The sweep's full length is `reach` up to float error: only a shorter one is a contact.
+  const blocked = wall !== undefined && wall < reach - SWEEP_SLACK_PX ? wall : null;
+  const touch = body !== null && (blocked === null || body <= blocked) ? body : blocked;
   if (touch !== null) return boom(add(r.position, scale(dir, touch)), 'contact');
   if (gap - reach <= EPSILON_PX) return boom(r.target, 'arrived');
   const position = add(r.position, scale(dir, reach));

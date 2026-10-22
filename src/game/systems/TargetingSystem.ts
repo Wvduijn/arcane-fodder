@@ -1,10 +1,11 @@
 import type { CombatTuning, EntityId, Vec2 } from '@core/types';
+import type { CollisionGrid } from '@core/world/collisionGrid';
 import { createAutoAttack, stepAutoAttack, type AutoAttackState } from '@core/combat/autoAttack';
 import type { CombatWorld } from '@core/combat/world';
 import type { TargetCandidate } from '@core/targeting/selectTarget';
 import { CLASSES } from '@data/classes';
 import { COMBAT } from '@data/combat';
-import type { EnemyRoster } from './EnemyRoster';
+import type { EnemyRoster, StructureRoster } from './EnemyRoster';
 import type { SquadHold, SquadSystem } from './SquadSystem';
 import type { System } from './System';
 
@@ -33,6 +34,10 @@ export class TargetingSystem implements System {
     private readonly world: CombatWorld,
     private readonly hold: SquadHold,
     private readonly tuning: CombatTuning = COMBAT,
+    /** Map blockers (M7, CD Q3): a wizard never picks a target it can't see. */
+    private readonly collision: CollisionGrid | null = null,
+    /** Huts (M7): auto-attacked only when no unit is in range (GDD §3, §12). */
+    private readonly structures: StructureRoster | null = null,
   ) {}
 
   /** The wizard's current target, or null. */
@@ -72,6 +77,7 @@ export class TargetingSystem implements System {
         retargetMs: this.tuning.retargetMs,
         candidates,
         dtMs: dt,
+        ...(this.collision ? { collision: this.collision } : {}),
       });
       this.states.set(member.id, step.state);
       if (step.fire) {
@@ -93,6 +99,11 @@ export class TargetingSystem implements System {
       const position = this.enemies.positionOf(id);
       if (!position) continue;
       list.push({ id, position, kind: 'unit', alive: this.world.isAlive(id) });
+    }
+    for (const id of this.structures?.structureIds() ?? []) {
+      const position = this.structures?.positionOf(id);
+      if (!position) continue;
+      list.push({ id, position, kind: 'structure', alive: this.world.isAlive(id) });
     }
     return list;
   }

@@ -1,6 +1,10 @@
 /** Render order of scene layers, back to front. */
 export const Depth = {
   Ground: 0,
+  /** Map `ground-detail` tiles: flowers, puddles, path edges (tiled-conventions §3). */
+  GroundDetail: 0.25,
+  /** Map `blockers` tiles (trunks, rocks, water): under units, not y-sorted (tiled-conventions §3). */
+  Blockers: 0.5,
   /**
    * Ground decals under every marker, ring and unit: Meteor's burning ground and the Thunderstorm
    * cloud's shadow (readability.md §5c).
@@ -25,6 +29,11 @@ export const Depth = {
   GroundFx: 7,
   /** Units, the leader included, sort by feet y inside [Units, Units + 1): see {@link unitDepth}. */
   Units: 10,
+  /**
+   * Map `canopy` tiles: above every unit (tiled-conventions §3), below goblin health bars,
+   * projectiles and FX so threats stay readable under trees.
+   */
+  Canopy: 15,
   /** Goblin health bars and the Burning overlay, above every unit (readability.md §4a: corpses below). */
   UnitOverlays: 20,
   /** Projectiles in flight (readability.md §4a: above live units). */

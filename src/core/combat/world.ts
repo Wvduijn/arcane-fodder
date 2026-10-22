@@ -16,9 +16,13 @@
  * - Low-level mutators (`setHp`, `markDead`, `setStatus`, `deleteStatus`) are for damage.ts,
  *   death.ts and status.ts. Game code goes through `applyHit`, `killUnit` and the status functions.
  *
+ * Structures (M7): a unit added with `structure` (a Goblin Hut) fights like any enemy unit (HP,
+ * Burning, area hits), but its death record carries `structure`, so the death flush emits
+ * `hut:destroyed` for it instead of `unit:died` (huts are targets, not kills; GDD §14).
+ *
  * Rule (D4): a dead unit never changes again. Every mutator is a no-op on a dead or unknown id.
  */
-import type { DeathCause, EntityId, StatusId, Team } from '@core/types';
+import type { DeathCause, EntityId, StatusId, StructureId, Team } from '@core/types';
 
 /** One running status on one unit (GDD §6). */
 export interface StatusInstance {
@@ -41,6 +45,10 @@ export interface CombatUnitSpec {
   readonly team: Team;
   readonly maxHp: number;
   readonly bodyRadiusPx: number;
+  /** Set for structures in the world (huts, M7). Absent for units. */
+  readonly structure?: StructureId;
+  /** Square footprint side: area rings hit it by the footprint's closest point (GDD §0, huts). */
+  readonly footprintPx?: number;
 }
 
 export interface UnitCombatState extends CombatUnitSpec {

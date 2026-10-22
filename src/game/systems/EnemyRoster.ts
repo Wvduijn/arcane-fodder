@@ -3,8 +3,10 @@ import type {
   EnemyDef,
   EntityId,
   MeleeAttackDef,
+  TargetId,
   Vec2,
 } from '@core/types';
+import type { AreaBody } from '@core/combat/area';
 import type { UnitLookup } from '../entities/Positioned';
 
 /** An attack a goblin brain released this frame. CombatSystem resolves it. */
@@ -36,4 +38,17 @@ export interface EnemyRoster extends UnitLookup {
   knockBack(id: EntityId, direction: Vec2, distancePx: number): void;
   /** Despawns a dead enemy; its last position stays readable through `positionOf`. */
   remove(id: EntityId): void;
+}
+
+/**
+ * Structures in the combat world (huts, SpawnerSystem): hit bodies for shots and area events,
+ * auto-attack fallback targets, and the target id the death flush puts on `hut:destroyed`.
+ */
+export interface StructureRoster extends UnitLookup {
+  /** Living structures, ascending id. */
+  structureIds(): readonly EntityId[];
+  /** What a destroy objective counts this structure as. Undefined for unknown ids. */
+  targetOf(id: EntityId): TargetId | undefined;
+  /** Living structures as area bodies with their square footprint (core area.ts, T11b). */
+  areaBodies(): AreaBody[];
 }

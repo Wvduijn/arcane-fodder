@@ -20,7 +20,13 @@
  */
 import type { EntityId, GibTuning } from '@core/types';
 import type { CombatWorld, UnitCombatState } from '@core/combat/world';
-import { deathVariantOf, isGibKill, type DeathRecord, type DeathSource } from '@core/combat/death';
+import {
+  deathVariantOf,
+  isGibKill,
+  structureOf,
+  type DeathRecord,
+  type DeathSource,
+} from '@core/combat/death';
 
 export interface Hit extends DeathSource {
   /** Who dealt it (`unit:damaged.source`), or null. A dead shooter's projectile keeps its id. */
@@ -93,6 +99,7 @@ function resolve(
     cause: unit.deathCause,
     deathVariant: deathVariantOf(hit, team),
     gibbed,
+    ...structureOf(unit),
   };
   return { target, dealt, landed: true, killed: true, death };
 }

@@ -31,7 +31,7 @@ import type { ConvergenceHudSource } from '../hud/HudModel';
 import type { GameInput } from '../input/GameInput';
 import type { ChannelView, ConvergenceFxSource } from '../views/ConvergenceFxView';
 import type { CombatSystem } from './CombatSystem';
-import type { EnemyRoster } from './EnemyRoster';
+import type { EnemyRoster, StructureRoster } from './EnemyRoster';
 import type { SquadHold, SquadSystem } from './SquadSystem';
 import type { System } from './System';
 import type { ChannelGate } from './VolunteerSystem';
@@ -63,6 +63,8 @@ export interface ConvergenceDebug {
 }
 
 export interface ConvergenceSystemOptions {
+  /** Huts (M7): included with their footprint. None when omitted. */
+  readonly structures?: StructureRoster;
   /** The run's two credit ids (from the run's allocator), so its strikes never charge (Q3). */
   readonly ids: ConvergenceIds;
   /** Seeds the barrage target picks. */
@@ -121,6 +123,8 @@ export class ConvergenceSystem
     };
     bus.on('unit:damaged', this.handleDamaged);
     bus.on('unit:died', this.handleDied);
+    bus.on('hut:destroyed', this.handleHutDestroyed);
+    bus.on('portal:opened', this.handlePortalOpened);
   }
 
   /** The squad is held while the channel runs (GDD §10). */
@@ -221,6 +225,8 @@ export class ConvergenceSystem
   destroy(): void {
     this.bus.off('unit:damaged', this.handleDamaged);
     this.bus.off('unit:died', this.handleDied);
+    this.bus.off('hut:destroyed', this.handleHutDestroyed);
+    this.bus.off('portal:opened', this.handlePortalOpened);
     this.state = createConvergence();
   }
 
@@ -277,6 +283,7 @@ export class ConvergenceSystem
       if (!position || !def) continue;
       bodies.push({ id, position, bodyRadiusPx: def.bodyRadiusPx, alive: this.combat.isAlive(id) });
     }
+    bodies.push(...(this.options.structures?.areaBodies() ?? []));
     return bodies;
   }
 
@@ -291,5 +298,15 @@ export class ConvergenceSystem
 
   private readonly handleDied: GameEventListener<'unit:died'> = (event) => {
     if (this.meter.onDied(event)) this.charged();
+  };
+
+  /** +chargePerHutDestroyed (GDD §12). */
+  private readonly handleHutDestroyed = (): void => {
+    if (this.meter.onHutDestroyed()) this.charged();
+  };
+
+  /** +chargeOnPortalOpen at the start of the opening (GDD §13). */
+  private readonly handlePortalOpened = (): void => {
+    if (this.meter.onPortalOpened()) this.charged();
   };
 }

@@ -113,6 +113,21 @@ describe('migrate', () => {
     });
   });
 
+  it('keeps Goblin Woods best times and Hat Hill entries (M7), next to the dev arena', () => {
+    const woods: FallenWizard = {
+      ...GRIMBALD,
+      missionId: 'm01-goblin-woods',
+      cause: 'left-behind',
+    };
+    const raw = {
+      ...full,
+      bestTimes: { 'dev-arena': 5, 'm01-goblin-woods': 312_000 },
+      hatHill: [GRIMBALD, woods],
+    };
+    expect(migrate(raw).bestTimes).toEqual({ 'dev-arena': 5, 'm01-goblin-woods': 312_000 });
+    expect(migrate(raw).hatHill).toEqual([GRIMBALD, woods]);
+  });
+
   it('never trusts the prototype chain', () => {
     const raw = JSON.parse('{"bestTimes": {"__proto__": 5, "toString": 3}}') as unknown;
     expect(migrate(raw).bestTimes).toEqual({});
