@@ -40,7 +40,7 @@ Names are lowercase kebab-case and must match exactly. Missing optional layers a
 
 Collision is the `blockers` tile layer. Units are 48 px wide, so one unit fills 3 tiles. A navigable gap of at least **5 tiles (80 px)** is required everywhere a squad must pass, so formation followers can separate and pass each other without jamming. Chokepoints the design wants tight (Ford, Old Bridge) are exactly 5 tiles; never narrower. Open corridors are 8 tiles (128 px) or wider. (Previously 3 tiles minimum at 32 px units.)
 
-Structures also block movement at runtime via their own physics bodies. Mark the tile footprint under a hut or portal in `blockers` as well, so enemy pathing and the squad agree.
+Structures also block movement at runtime via their own physics bodies. Mark the tile footprint under a hut in `blockers` as well, so enemy pathing and the squad agree. The portal pad is **not** a blocker: the leader walks onto it (trigger 24 px from the centre, GDD §13); it uses the walkable `portal-pad` ground tile.
 
 ## 4. Object types
 

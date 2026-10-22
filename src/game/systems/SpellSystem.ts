@@ -1,3 +1,4 @@
+import type { CollisionGrid } from '@core/world/collisionGrid';
 import type { ClassDef, MageClassId, SpellDef, SpellId, SpellTuning, Vec2 } from '@core/types';
 import type { IdAllocator } from '@core/ids';
 import type { AreaBody } from '@core/combat/area';
@@ -17,7 +18,7 @@ import type { SpellSlotSource, SpellSlotState } from '../hud/HudModel';
 import type { GameInput, InputAction } from '../input/GameInput';
 import type { FireballFlight, SpellFlightSource } from '../views/SpellFxView';
 import type { CombatSystem } from './CombatSystem';
-import type { EnemyRoster } from './EnemyRoster';
+import type { EnemyRoster, StructureRoster } from './EnemyRoster';
 import type { SquadSystem } from './SquadSystem';
 import type { System } from './System';
 import type { ChannelGate } from './VolunteerSystem';
@@ -42,6 +43,10 @@ export interface SpellDebug {
 }
 
 export interface SpellSystemOptions {
+  /** Huts (M7): included with their footprint. None when omitted. */
+  readonly structures?: StructureRoster;
+  /** Map blockers (M7): a Fireball explodes on the first trunk it enters. Open ground when omitted. */
+  readonly collision?: CollisionGrid;
   readonly spells?: Readonly<Record<SpellId, SpellDef>>;
   readonly tuning?: SpellTuning;
   readonly classes?: Readonly<Record<MageClassId, ClassDef>>;
@@ -67,6 +72,9 @@ export class SpellSystem implements System, SpellSlotSource, SpellFlightSource {
   private readonly tuning: SpellTuning;
   private debug: SpellDebug = { lastCast: null, lastImpact: null, casts: 0, denied: 0, lost: [] };
 
+  private readonly collision: CollisionGrid | undefined;
+  private readonly structures: StructureRoster | undefined;
+
   constructor(
     private readonly input: GameInput,
     private readonly squad: SquadSystem,
@@ -79,6 +87,8 @@ export class SpellSystem implements System, SpellSlotSource, SpellFlightSource {
     options: SpellSystemOptions = {},
   ) {
     this.spells = options.spells ?? SPELLS;
+    this.collision = options.collision;
+    this.structures = options.structures;
     this.tuning = options.tuning ?? SPELL_TUNING;
     this.caster = createCaster(this.spells);
     this.readSlots = createSpellSlotReader(options.classes ?? CLASSES, this.spells);
@@ -116,7 +126,11 @@ export class SpellSystem implements System, SpellSlotSource, SpellFlightSource {
 
   update(dt: number): void {
     this.rederive();
-    const step = stepCaster(this.caster, { hitBodies: this.hitBodies(), dtMs: dt });
+    const step = stepCaster(this.caster, {
+      hitBodies: this.hitBodies(),
+      dtMs: dt,
+      ...(this.collision ? { collision: this.collision } : {}),
+    });
     this.caster = step.state;
     for (const impact of step.impacts) {
       const def = this.spells[impact.spell];
@@ -201,6 +215,7 @@ export class SpellSystem implements System, SpellSlotSource, SpellFlightSource {
       });
     }
     bodies.push(...this.extraBodies.spellHitBodies);
+    bodies.push(...(this.structures?.areaBodies() ?? []));
     return bodies;
   }
 

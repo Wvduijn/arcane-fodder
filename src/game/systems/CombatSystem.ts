@@ -17,7 +17,12 @@ import type {
 import type { IdAllocator } from '@core/ids';
 import { normalize, sub } from '@core/math/vec2';
 import { applyHit, type Hit, type HitResult } from '@core/combat/damage';
-import { killUnit, resolveFrameDeaths, type DeathRecord } from '@core/combat/death';
+import {
+  isStructureDeath,
+  killUnit,
+  resolveFrameDeaths,
+  type DeathRecord,
+} from '@core/combat/death';
 import {
   createProjectile,
   stepProjectile,
@@ -40,6 +45,7 @@ import {
   type ReactionResults,
 } from '@core/combat/reactions';
 import { applyStatus } from '@core/combat/status';
+import type { CollisionGrid } from '@core/world/collisionGrid';
 import type { CombatWorld } from '@core/combat/world';
 import { CLASSES } from '@data/classes';
 import { COMBAT, GIBS } from '@data/combat';
@@ -50,7 +56,7 @@ import type { EventBus } from '../bus/EventBus';
 import { Depth } from '../depths';
 import { ImagePool, type PoolStats } from '../fx/ImagePool';
 import { PlaceholderTextures, PROJECTILE_ORIGINS } from '../placeholders';
-import type { EnemyRoster } from './EnemyRoster';
+import type { EnemyRoster, StructureRoster } from './EnemyRoster';
 import type { SquadSystem } from './SquadSystem';
 import type { System } from './System';
 import type { TargetingSystem } from './TargetingSystem';
@@ -92,6 +98,10 @@ export interface KegLink {
 }
 
 export interface CombatSystemOptions {
+  /** Map blockers and huts (M7): autos and arrows end on the first solid tile. Open ground when omitted. */
+  readonly collision?: CollisionGrid;
+  /** Huts (M7): hit by shots and area events; their death emits `hut:destroyed`. */
+  readonly structures?: StructureRoster;
   readonly tuning?: CombatTuning;
   readonly gibs?: GibTuning;
   readonly statuses?: Readonly<Record<StatusId, StatusDef>>;
@@ -128,6 +138,9 @@ export class CombatSystem implements System {
     kegsTriggered: 0,
   };
 
+  private readonly collision: CollisionGrid | undefined;
+  private readonly structures: StructureRoster | undefined;
+
   constructor(
     scene: Phaser.Scene,
     private readonly world: CombatWorld,
@@ -140,6 +153,8 @@ export class CombatSystem implements System {
     options: CombatSystemOptions = {},
   ) {
     this.tuning = options.tuning ?? COMBAT;
+    this.collision = options.collision;
+    this.structures = options.structures;
     this.gibs = options.gibs ?? GIBS;
     this.statuses = options.statuses ?? STATUSES;
     this.combust = options.combust ?? REACTIONS.combust;
@@ -298,11 +313,26 @@ export class CombatSystem implements System {
     if (wizards.length > 0) this.squad.kill(wizards);
     for (const death of deaths) {
       if (death.team === 'squad') continue;
+      if (isStructureDeath(death)) {
+        this.emitStructureDeath(death.id);
+        continue;
+      }
       const { id, team, cause, deathVariant, gibbed } = death;
       this.bus.emit('unit:died', { id, team, cause, deathVariant, gibbed });
       this.enemies.remove(id);
     }
     for (const death of deaths) this.world.remove(death.id);
+  }
+
+  /** A hut fell: `hut:destroyed`, never `unit:died` (no kill, GDD §14). Its rubble stays. */
+  private emitStructureDeath(id: EntityId): void {
+    const target = this.structures?.targetOf(id);
+    const at = this.structures?.positionOf(id);
+    if (target === undefined || !at) {
+      console.error(`Structure #${String(id)} died but no structure roster knows it`);
+      return;
+    }
+    this.bus.emit('hut:destroyed', { id, target, at: { ...at } });
   }
 
   destroy(): void {
@@ -352,13 +382,13 @@ export class CombatSystem implements System {
     const kept: LiveProjectile[] = [];
     for (const live of this.projectiles) {
       const living = bodies.map((body) => ({ ...body, alive: this.world.isAlive(body.id) }));
-      const step = stepProjectile(live.projectile, dt, living);
+      const step = stepProjectile(live.projectile, dt, living, this.collision);
       live.projectile = step.projectile;
       if (step.hit !== null) {
         const { source, ownerId, direction } = step.projectile;
         this.resolveAttackHit(step.hit, source, ownerId, direction);
       }
-      if (step.hit !== null || step.expired) {
+      if (step.hit !== null || step.expired || step.blocked) {
         this.pool.release(live.image);
         continue;
       }
@@ -472,7 +502,9 @@ export class CombatSystem implements System {
     for (const unit of this.world.units()) {
       if (!unit.alive) continue;
       const position =
-        unit.team === 'squad' ? this.squad.positionOf(unit.id) : this.enemies.positionOf(unit.id);
+        unit.team === 'squad'
+          ? this.squad.positionOf(unit.id)
+          : (this.enemies.positionOf(unit.id) ?? this.structures?.positionOf(unit.id));
       if (!position) continue;
       list.push({
         id: unit.id,

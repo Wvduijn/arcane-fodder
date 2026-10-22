@@ -216,6 +216,7 @@ export class M6Sim extends SpellSim {
         isAlive: (id) => this.world.isAlive(id),
         contacts: this.enemyBodies(),
         runnerRadiusPx: MOVEMENT.wizardBodyRadiusPx,
+        ...(this.collision ? { collision: this.collision } : {}),
       },
       VOLUNTEER,
     );

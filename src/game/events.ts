@@ -4,9 +4,11 @@ import type {
   DeathCause,
   DeathVariantId,
   EntityId,
+  MissionOutcome,
   ReactionId,
   SpellId,
   StatusId,
+  TargetId,
   Team,
   Vec2,
 } from '@core/types';
@@ -91,6 +93,24 @@ export interface GameEvents {
   'volunteer:denied': Record<string, never>;
   /** Arcane Detonation. `unit:died` with cause `volunteer` follows in the same flush. */
   'volunteer:detonated': { readonly id: EntityId; readonly name: string; readonly at: Vec2 };
+  /** A hut reached 0 HP: spawning stops, rubble stays. Never followed by `unit:died` (huts aren't kills). */
+  'hut:destroyed': { readonly id: EntityId; readonly target: TargetId; readonly at: Vec2 };
+  /** One objective target down, `progress` of `required`. The portal lights rune `progress − 1`. */
+  'mission:target-destroyed': {
+    readonly target: TargetId;
+    readonly progress: number;
+    readonly required: number;
+    readonly at: Vec2;
+  };
+  /** The opening starts: the surge spawns, the meter gets chargeOnPortalOpen. Enterable after PORTAL.openingMs. */
+  'portal:opened': { readonly at: Vec2 };
+  /** The leader reached the portal. Left-behind wizards get no `unit:died` (they aren't killed). */
+  'portal:extracted': {
+    readonly saved: readonly EntityId[];
+    readonly leftBehind: readonly EntityId[];
+  };
+  /** Victory after extraction; defeat when the squad is gone and no volunteer runs (GDD §14). */
+  'mission:ended': { readonly result: MissionOutcome };
 }
 
 export type GameEventName = keyof GameEvents;

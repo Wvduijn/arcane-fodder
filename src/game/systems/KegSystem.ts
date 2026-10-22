@@ -1,10 +1,8 @@
 import Phaser from 'phaser';
-import type { DevKegSpawn, EntityId, KaboomDef, KegDef, Vec2 } from '@core/types';
+import type { EntityId, KaboomDef, KegDef, Rect, Vec2 } from '@core/types';
 import type { AreaBody } from '@core/combat/area';
 import type { IdAllocator } from '@core/ids';
-import { add } from '@core/math/vec2';
 import { createKeg, kegBodies, stepKegs, triggerKeg, type KegState } from '@core/structures/keg';
-import { DEV_KEGS } from '@data/devArena';
 import { REACTIONS } from '@data/reactions';
 import { KEG } from '@data/structures';
 import type { EventBus } from '../bus/EventBus';
@@ -42,11 +40,18 @@ export type KaboomHandler = (keg: { readonly id: EntityId; readonly position: Ve
 
 export interface KegSystemOptions {
   readonly ids: IdAllocator;
-  /** Spawn offsets are relative to this point (the squad leader's spawn). */
-  readonly origin: Vec2;
-  readonly spawns?: readonly DevKegSpawn[];
+  /** World positions, one keg each: the map's `powder-keg` objects (M7). */
+  readonly positions: readonly Vec2[];
+  /** Kegs are solid until their Kaboom (M7, GDD §8); shots pass them. Not solid when omitted. */
+  readonly solids?: SolidRegistry;
   readonly def?: KegDef;
   readonly kaboom?: KaboomDef;
+}
+
+/** Where structures register their footprints (CollisionSystem). */
+export interface SolidRegistry {
+  addSolid(id: EntityId, rect: Rect, blocksShots: boolean): void;
+  removeSolid(id: EntityId): void;
 }
 
 interface KegView {
@@ -81,7 +86,7 @@ export interface KegDebug {
  * counting next frame. Either way its fuse lasts the full fuseMs and its ring is drawn from the
  * frame it was lit until the frame it blows (D5).
  *
- * Not solid until M7's collision layer (M5 Q1). Spawns `DEV_KEGS` at scene start; {@link respawn}
+ * Solid through `options.solids` until the Kaboom (M7). Spawns the map's kegs at scene start; {@link respawn}
  * (debug G) replaces them with fresh idle kegs and fresh ids.
  */
 export class KegSystem implements System, KegLink, SpellHitBodies {
@@ -167,6 +172,7 @@ export class KegSystem implements System, KegLink, SpellHitBodies {
     this.kegs = [...step.kegs];
     for (const keg of step.exploded) {
       this.removeView(keg.id);
+      this.options.solids?.removeSolid(keg.id);
       // May light more kegs through trigger(); they start counting next frame.
       this.onKaboom({ id: keg.id, position: keg.position });
     }
@@ -176,6 +182,7 @@ export class KegSystem implements System, KegLink, SpellHitBodies {
   /** Debug G: every keg replaced by a fresh idle one at its spawn. */
   respawn(): void {
     for (const id of [...this.views.keys()]) this.removeView(id);
+    for (const keg of this.kegs) this.options.solids?.removeSolid(keg.id);
     for (const spark of this.sparks) this.sparkPool.release(spark.image);
     this.sparks.length = 0;
     this.spawn();
@@ -191,11 +198,16 @@ export class KegSystem implements System, KegLink, SpellHitBodies {
   }
 
   private spawn(): void {
-    const spawns = this.options.spawns ?? DEV_KEGS;
-    this.kegs = spawns.map(({ offset }) =>
-      createKeg(this.options.ids.next(), add(this.options.origin, offset)),
+    this.kegs = this.options.positions.map((position) =>
+      createKeg(this.options.ids.next(), position),
     );
+    const half = this.def.footprintPx / 2;
     for (const keg of this.kegs) {
+      this.options.solids?.addSolid(
+        keg.id,
+        { x: keg.position.x - half, y: keg.position.y - half, width: half * 2, height: half * 2 },
+        false,
+      );
       const sprite = this.kegPool
         .acquire()
         .setPosition(keg.position.x, keg.position.y)

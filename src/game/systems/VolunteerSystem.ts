@@ -1,3 +1,4 @@
+import type { CollisionGrid } from '@core/world/collisionGrid';
 import type {
   EntityId,
   FallenWizard,
@@ -25,7 +26,7 @@ import type { EventBus } from '../bus/EventBus';
 import type { VolunteerHudSource } from '../hud/HudModel';
 import type { GameInput } from '../input/GameInput';
 import type { CombatSystem } from './CombatSystem';
-import type { EnemyRoster } from './EnemyRoster';
+import type { EnemyRoster, StructureRoster } from './EnemyRoster';
 import type { SquadSystem } from './SquadSystem';
 import type { DeathFlushHook } from './StatusSystem';
 import type { System } from './System';
@@ -66,6 +67,10 @@ export interface VolunteerDebug {
 export interface VolunteerSystemOptions {
   /** Seeds the bark pick (seeded, never the same line twice in a row: M6 Q5). */
   readonly barkSeed: number;
+  /** Huts (M7): included with their footprint. None when omitted. */
+  readonly structures?: StructureRoster;
+  /** Map blockers and solids (M7): a runner touching one detonates. Open ground when omitted. */
+  readonly collision?: CollisionGrid;
   readonly missionId: MissionId;
   readonly tuning?: VolunteerTuning;
   readonly spells?: SpellTuning;
@@ -153,6 +158,7 @@ export class VolunteerSystem implements System, VolunteerHudSource, DeathFlushHo
         isAlive: (id) => this.combat.isAlive(id),
         contacts: this.contacts(),
         runnerRadiusPx: MOVEMENT.wizardBodyRadiusPx,
+        ...(this.options.collision ? { collision: this.options.collision } : {}),
       },
       this.tuning,
     );
@@ -238,6 +244,7 @@ export class VolunteerSystem implements System, VolunteerHudSource, DeathFlushHo
       if (!position || !def) continue;
       bodies.push({ id, position, bodyRadiusPx: def.bodyRadiusPx, alive: this.combat.isAlive(id) });
     }
+    bodies.push(...(this.options.structures?.areaBodies() ?? []));
     return bodies;
   }
 }

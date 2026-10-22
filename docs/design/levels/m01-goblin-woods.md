@@ -15,14 +15,14 @@ Mission data (see section 8): squad `['pyromancer','stormcaller','pyromancer','s
 |---|---|---|
 | View | 640x360 px | GDD §0 |
 | Squad speed | 110 px/s | GDD Q9 |
-| Full trail length | 54 px | GDD §1 |
+| Full trail length | 78 px | GDD §1 (48 px units) |
 | Grunt / archer speed | 85 / 70 px/s | GDD §12 |
 | Archer range | 220 px (squad outranged: 180/160) | GDD §12 |
 | Kaboom | r 72, 60 dmg, half to wizards; chains within 80 px | GDD §8 |
 | Hut | 300 HP, footprint 64x64 (4x4 tiles), active within 400 px, 1 grunt/6 s, max 4 alive | GDD §12 |
 | Meter | start 40, +4/kill, +0.1/dmg, +10/hut, +50 at portal open | GDD §9 |
 | Surge-01 | 12 grunts + 4 archers over 8 s, max 12 on screen; no spawn within 160 px of a wizard | GDD §12 |
-| Extraction | radius 80, leader trigger 16 | GDD §13 |
+| Extraction | radius 112, leader trigger 24 | GDD §13 (Q8 re-scale) |
 
 ## 3. Map
 
@@ -32,7 +32,32 @@ Mission data (see section 8): squad `['pyromancer','stormcaller','pyromancer','s
 - **Scale update (48 px units).** At the unchanged 640x360 view a 48 px unit is 7.5% of the screen width, so the view shows about 13 units across. Distances in this doc are not rescaled (ranges and speeds are in px and owned by game-designer); corridors, chokes, ledge gaps and clearances are widened instead. Producer decision: the view stays 640x360 (it may change at the creative director's exit gate; the producer will say). The layout works at either size; at 640x360 the Ravine and Bridge fights are tight by design.
 - Footprints of hut, keg and portal follow `src/data/structures.ts` and art-director's sheet; confirmed by art-director and game-designer: hut 4x4 tiles (64 px), portal base 4x4 with a 128 px canvas, keg 1-tile collision with a 32x32 sprite. Bridge deck and chokes are 5 tiles (GDD asks at least 4).
 
-### Sketch (1 char = 64 px, 32 x 24 cells; north up)
+### Built layout (M7, source `assets-src/levels/m01-goblin-woods/`; the map wins over the sketch below)
+
+Tile = px / 16. Positions in the tables below are the authored ones; they differ from the first draft where noted.
+
+| Area | Tiles (col, row) | Notes |
+|---|---|---|
+| Start clearing / safe-start | cols 4-20, rows 77-90 / 7-16, 79-88 | `squad-start` (192,1344) |
+| Hollow Road | cols 21-37, rows 77-86 | 10 tiles wide, road on rows 81-83, canopy only on row 77 |
+| Ford | cols 38-42, rows 79-83 | 5x5 shallow crossing; stream (water) above and below |
+| Fallen Log Meadow | cols 43-72, rows 68-86 | dirt trail rows 81-83, then north along cols 71-73 |
+| Path A (to Hut A) | cols 73-77, rows 67-74 | 8 wide |
+| Hut A clearing | cols 78-95, rows 52-72 | hut footprint cols 87-90, rows 59-62; touches the river, portal visible across it |
+| Bramble Path B | cols 47-77, rows 51-58 | 8 wide, stump rocks at (61,54) and (66,56) |
+| Ravine | floor cols 47-52, rows 27-50 | west ledge cols 41-45 rows 36-44 behind a trunk line (col 46: trunks on rows 36, 40, 44, gaps of 3); east ledge cols 54-58 rows 43-50 (col 53: trunks on rows 43, 47, gaps of 3) |
+| Bog | cols 8-36, rows 11-36 | hut footprint cols 19-22, rows 20-23, dirt yard around it, mud patches |
+| Gallery | cols 37-95, rows 15-26 | 12 wide, road rows 18-20, canopy on rows 15-16; north pocket cols 56-68 rows 8-14; south pocket cols 62-75 rows 27-35; bridge-head plaza cols 85-95 rows 12-30 |
+| Old Bridge | river cols 96-100, deck rows 17-21 | 5 wide, solid rails on rows 16 and 22 |
+| East bank | cols 101-118, rows 10-56 | road to the pad on cols 106-108; portal pad cols 106-109 rows 46-49 |
+
+The portal pad is **walkable** (`P`), not a blocker: the leader must reach within 24 px of the portal centre (GDD §13). This replaces tiled-conventions §3's "mark the portal footprint in blockers" for the portal only; huts stay solid. The ford stream and the river are `blockers` water.
+
+### Intro pan (approved at the gate; built by game-dev)
+
+3 s, skippable. The camera starts on the squad at `squad-start` (192,1344), glides to the sealed portal (1728,768) over about 1.4 s (a straight 1500 px sweep, ease in-out), holds about 0.2 s on the two dark runes, and returns to the squad over about 1.4 s. Any movement key or click skips it. The portal is the biggest object in frame during the hold. Pan endpoints are the `squad-start` and `portal` objects; no extra objects.
+
+### Sketch (1 char = 64 px, 32 x 24 cells; north up; first draft, topology only)
 
 ```
 col  0         1         2         3
@@ -73,7 +98,7 @@ Route in words (sections follow the GDD's three-section split):
 
 ### Sealed portal visibility
 
-- The portal sits on the east bank at (1720,760), 100 px east of the river, and is the biggest object on the map (4x4 tile base, arch about 128 px, rune ring, glow).
+- The portal sits on the east bank at (1728,768), 112 px east of the river, and is the biggest object on the map (4x4 tile base, arch about 128 px, rune ring, glow).
 - First sight: from the Hut A clearing the player at x >= 1420 sees it across the river (dx about 300, dy about 140). Rocks are not placed in that sight line.
 - Earlier cues (approved at the gate, built when their milestone opens): (a) a 3 s skippable camera pan start -> portal -> start at mission begin; (b) an off-screen indicator for the **sealed** portal, not only the open one. Without them the portal is first visible at roughly the 2 minute mark.
 - The two dark runes are shown from the start (GDD §13).
@@ -101,7 +126,7 @@ Times assume a competent but cautious player; the fast estimate is in brackets. 
 | 3.2 | The Gallery | climax | Gallery (600-1536, 240-440) | Fighting retreat east. Grunts from behind (4), two flank pockets fire out of the tree line at mid-range, each next to a keg for a Kaboom reward. The player must keep the trail together: stragglers hit the 112 px radius edge. | 4+6 grunts, 2 archers | 4 kegs on the flank clearings | 1:20 | **1** (needs meter; ideally saved) |
 | 3.3 | The Bridge | climax | Old Bridge (1536-1616, 300) | The choke. 2 grunts and an archer at the west bridge head, and 2 archers on the east bank beyond the bridge. A chained keg pair at the west head and one on the east bank. Volunteer! has its best use here (a rookie dashes the bridge head). | 2 grunts, 3 archers | 3 kegs | 0:40 | optional |
 | 3.4 | Rune Path | climax | East bank (1550-1720, 330-760) | Open run south to the portal (about 450 px, 4 s). Remaining pursuit spills over the bridge. The leader enters the portal while the 112 px radius decides who is saved. | pursuers | none | 0:20 | - |
-| **Totals** |  |  |  |  | about 55 enemies | 16 kegs | **about 9:00 cautious, about 6:00 fast** | **3-4** |
+| **Totals** |  |  |  |  | about 55 enemies | 17 kegs | **about 9:00 cautious, about 6:00 fast** | **3-4** |
 
 Time breakdown of the cautious run: section 1 about 3:15, section 2 about 3:30, section 3 about 2:30 (includes the surge).
 
@@ -135,7 +160,7 @@ Group ids are Tiled `group` values (conventions §4.1). Counts are enemy counts 
 | `grunts-stray-01` | enemy-spawn | grunt x2 | (460,1320) | radius 24, active at start |
 | `grunts-meadow-01` | enemy-spawn | grunt x5 | (900,1180) | radius 48; rally point is 120 px east of the keg pair |
 | `grunts-cut-01` | enemy-spawn | grunt x3 | (1060,1170) | radius 40 |
-| `hut-01` | goblin-hut | - | (1420,980) | `runeIndex` 0, activateRadius 400 |
+| `hut-01` | goblin-hut | - | (1424,976) | `runeIndex` 0; spawn numbers are the data defaults (aligned to the 4x4 tile footprint) |
 
 ### Section 2
 
@@ -145,45 +170,46 @@ Group ids are Tiled `group` values (conventions §4.1). Counts are enemy counts 
 | `archer-ravine-01` | archer-post | archer | (720,640) | west ledge, 48 px from `keg-07` |
 | `archer-ravine-02` | archer-post | archer | (880,760) | east ledge, 48 px from `keg-08` |
 | `grunts-ravine-01` | enemy-spawn | grunt x3 | (800,780) | floor of the ravine |
-| `trig-drum` | trigger zone | - | rect (760,520,80,48) | event `activate-group` group `grunts-ambush` |
+| `trig-drum` | trigger zone | - | rect (752,512,96,48) | event `activate-group` group `grunts-ambush` |
 | `grunts-ambush-01` | enemy-spawn | grunt x6 | (800,860) | `trigger` = `trig-drum` (appear behind the squad, ravine mouth) |
 | `archer-bog-01` | archer-post | archer | (450,250) | north flank of Hut B entrance |
 | `archer-bog-02` | archer-post | archer | (450,470) | south flank |
-| `hut-02` | goblin-hut | - | (330,360) | `runeIndex` 1 |
+| `hut-02` | goblin-hut | - | (336,352) | `runeIndex` 1 |
 
 ### Section 3: surge-01 (12 grunts + 4 archers)
 
-All use `wave: surge-01` and aggro always (see pacing note 3). Surge points are ahead of and beside the retreat, so outrunning is not a plan.
+All use `wave: surge-01` and aggro always (see pacing note 3). Surge points are ahead of and beside the retreat, so outrunning is not a plan. M7 gate B1 (CD: the surge must be able to reach the wizards): grunts out-walk nobody at 85 vs 110 px/s, so contact comes from placement. Five of six points lie ahead of the squad on the Gallery, bridge and Rune Path line, with delays timed to the squad's arrival (squad at about 110 px/s covers the Gallery to the bridge in 11 s); the last point (`surge-rune-01`, 11 s) lands on the east bank so the final 450 px is not empty. Rear weight is cut to 2 grunts. Totals unchanged (12 + 4). Needs a reviewer playtest; a surge speed boost (game-designer) is the second lever.
 
 | name | position | enemy / count | delayMs | role |
 |---|---|---|---|---|
-| `surge-rear-01` | (200,360) | grunt x4 | 0 | chasers from the Bog; keep the squad moving |
+| `surge-rear-01` | (200,360) | grunt x2 | 0 | chasers from the Bog; keep the squad moving (only 2: the squad kills rear spawns at Hut B, so the weight moved ahead, see B1 note) |
 | `surge-mid-n-01` | (1000,200) | grunt x3 + archer x1 | 2000 | north flank pocket of the Gallery |
-| `surge-mid-s-01` | (1100,500) | grunt x3 + archer x1 | 4000 | south flank pocket; `keg-13/14` here |
+| `surge-mid-s-01` | (1088,456) | grunt x3 + archer x1 | 4000 | south flank pocket; `keg-13/14` here |
 | `surge-bridge-w-01` | (1480,300) | grunt x2 | 6000 | the bridge head blockers; `keg-15/16` here |
 | `surge-bridge-e-01` | (1680,320) | archer x2 | 8000 | the east-bank guard, outranging the bridge |
+| `surge-rune-01` | (1800,600) | grunt x2 | 11000 | flank of the Rune Path: the last contact on the portal leg (M7 gate B1) |
 
-Total 12 grunts, 4 archers.
+Total 12 grunts (2+3+3+2+2), 4 archers. One enemy type per object, so the mixed points are split: `surge-mid-n-02` (1032,208) and `surge-mid-s-02` (1132,492) hold the single archers. Hut doors: `hut-spawn-01` (1424,1024), south side of Hut A facing the approach; `hut-spawn-02` (400,352), east side of Hut B facing the Gallery. Rune slots: `rune-slot-01` (1704,720) and `rune-slot-02` (1752,720), north edge of the pad. Hut-A and Hut-B rune order follows `runeIndex` 0 and 1; the HUD lights runes left to right.
 
 ## 6. Kegs
 
-Keg footprint per structures data (was 16x16; may grow with the 48 px scale). All kegs are at least 112 px from the route centreline (GDD asks 96; r72 plus half a unit is 96, I keep 16 px margin where terrain allows) and at least 192 px from `squad-start`. Chain pairs keep centres 32-48 px apart (chain range is 80 px; 32x32 sprites must not overlap). None sits on the route at spawn time. Chain = intentionally within 80 px of another.
+Keg footprint per structures data (was 16x16; may grow with the 48 px scale). All kegs are at least 112 px from the route centreline (GDD asks 96; r72 plus half a unit is 96, I keep 16 px margin where terrain allows) (one deliberate exception: `keg-09`) and at least 192 px from `squad-start`. Scatter groups keep `radius + 20` px clear of any keg. Chain pairs keep centres 32-48 px apart (chain range is 80 px; 32x32 sprites must not overlap). None sits on the route at spawn time. Chain = intentionally within 80 px of another.
 
 | name | position | purpose |
 |---|---|---|
 | `keg-01`, `keg-02` | (784,1148), (784,1188) | **First lesson.** Chain pair beside the meadow pack's rally point; 112 px from the road line (y 1300). |
-| `keg-03` | (1090,1130) | Lightning-on-keg alongside the Combust demo grunts. |
-| `keg-04`, `keg-05` | (1380,940), (1396,988) | Beside Hut A's NW corner; 40% hut damage plus the guards. |
-| `keg-06` | (1250,990) | At the Bramble Path mouth; punishes spawn-camping grunts. |
-| `keg-07`, `keg-08` | (740,650), (870,770) | Under the ravine archers. Lightning/Fireball on the keg kills the archer. |
-| `keg-09` | (800,880) | Ravine mouth: punishes the Drum Hollow ambush. |
+| `keg-03` | (1040,1110) | Lightning-on-keg alongside the Combust demo grunts (moved off the trail, 112 px from it). |
+| `keg-04`, `keg-05` | (1344,920), (1344,968) | Beside Hut A's NW corner (hut edge x 1392, 48 px); 40% hut damage plus the guards. |
+| `keg-06` | (1270,1000) | At the Bramble Path mouth, west edge of the clearing; punishes spawn-camping grunts. |
+| `keg-07`, `keg-08` | (688,672), (912,792) | On the ravine ledges, 45 px from `archer-ravine-01/02`. Lightning/Fireball on the keg kills the archer. |
+| `keg-09` | (760,920) | Ravine mouth, south-west corner pocket (tile 47,57), about 50 px off the path line. **Deliberate rule-7 exception (beat 2.3):** it must be in blast range (72 px) of the ambush spawn (800,860), so it cannot sit 96 px off the path. Reviewer watches for snagging and stray Combusts at T18. |
 | `keg-10`, `keg-11` | (420,300), (420,420) | Bog entrance flanks, close to the bog archers. |
 | `keg-12` | (260,360) | Behind Hut B, a late choice for the finishing blow. |
 | `keg-13`, `keg-14` | (1100,520), (1130,532) | Chain pair in the south flank pocket of the Gallery. |
-| `keg-15`, `keg-16` | (1470,340), (1486,356) | West bridge head, chain pair. |
-| `keg-17` | (1650,340) | East bank, beside the surge archers. |
+| `keg-15`, `keg-16` | (1470,408), (1494,432) | South edge of the bridge-head plaza, chain pair, about 100 px off the road line. |
+| `keg-17` | (1840,420) | East bank, off the road, in reach of the surge archers. |
 
-17 kegs. Cut `keg-03` and `keg-12` first if playtests show kegs are too plentiful.
+17 kegs. Only the south Gallery pocket has a keg; the north pocket is the plain one. Cut `keg-03` and `keg-12` first if playtests show kegs are too plentiful.
 
 ## 7. Obstacles and terrain
 
@@ -202,12 +228,12 @@ extraction: {
   kind: 'portal',
   spawnId: 'portal',
   radiusPx: 112,                     // GDD Q8 re-scaled for 48 px units (78 px trail); plan example said 48
-  finalSurge: { waveId: 'surge-01', spawnPoints: 'all-remaining' },
+  finalSurge: { waveId: 'surge-01', spawnPoints: 'all-remaining', aggro: 'always' },
 },
 squad: ['pyromancer', 'stormcaller', 'pyromancer', 'stormcaller'],
 ```
 
-Map objects: `squad-start`, `portal` (1720,760), `hut-01`, `hut-02`, `keg-01..17`, `surge-*`, and the spawn and trigger objects above. Sections are `section` zones: `sec-01` Hollow Road, `sec-02` Ridge Pass, `sec-03` Fighting Retreat.
+Map objects: `squad-start`, `portal` (1728,768), `hut-01`, `hut-02`, `keg-01..17`, `surge-*`, and the spawn and trigger objects above. Sections are `section` zones: `sec-01` Hollow Road, `sec-02` Ridge Pass, `sec-03` Fighting Retreat.
 
 ## 9. Pacing notes and open items
 

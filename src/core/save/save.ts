@@ -96,7 +96,10 @@ export function serializeSave(save: SaveData): string {
 
 // Exhaustive by type: adding a class, mission or cause to types.ts fails here until it is listed.
 const CLASS_IDS: Readonly<Record<MageClassId, true>> = { pyromancer: true, stormcaller: true };
-const MISSION_IDS: Readonly<Record<MissionId, true>> = { 'dev-arena': true };
+const MISSION_IDS: Readonly<Record<MissionId, true>> = {
+  'dev-arena': true,
+  'm01-goblin-woods': true,
+};
 const CAUSES: Readonly<Record<DeathCause, true>> = {
   combat: true,
   volunteer: true,

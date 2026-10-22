@@ -48,6 +48,8 @@ import { stepSquad } from '@core/squad/follow';
 import { createSquad, killSquadMembers, type SquadState } from '@core/squad/squad';
 import { createKeg, kegBodies, triggerKeg, type KegState } from '@core/structures/keg';
 import type { TargetCandidate } from '@core/targeting/selectTarget';
+import type { CollisionGrid } from '@core/world/collisionGrid';
+import { FlowFieldClock, type FlowField } from '@core/world/flowField';
 import { CLASSES } from '@data/classes';
 import { COMBAT, GIBS } from '@data/combat';
 import { DEV_ARENA, DEV_ENCOUNTER, DEV_KEGS, DEV_SQUAD } from '@data/devArena';
@@ -78,6 +80,10 @@ export interface EncounterOptions {
   readonly attacks?: Partial<Record<MageClassId, ProjectileAttackDef>>;
   /** M6: fed every landed hit and death of the fight. */
   readonly meter?: ConvergenceMeter;
+  /** M7: tile collision for every step (squad, enemies, autos, projectiles). */
+  readonly collision?: CollisionGrid;
+  /** M7: enemy navigation (with `collision`), rebuilt on its clock toward the squad. */
+  readonly navigation?: { readonly field: FlowField; readonly rebuildMs: number };
 }
 
 export interface EncounterResult {
@@ -312,6 +318,9 @@ export function runEncounter(options: EncounterOptions): EncounterResult {
     );
   };
 
+  const grid = options.collision;
+  const nav = options.navigation;
+  const navClock = nav ? new FlowFieldClock(nav.rebuildMs) : null;
   while (t < options.maxMs) {
     t += dtMs;
 
@@ -319,19 +328,36 @@ export function runEncounter(options: EncounterOptions): EncounterResult {
     const leader = squad.members[0];
     if (!leader) break;
     const beforeSquad = new Map(squad.members.map((m) => [m.id, m.position]));
-    squad = stepSquad(squad, { leaderPosition: leader.position, walkable, dtMs }, TRAIL, MOVEMENT);
+    squad = stepSquad(
+      squad,
+      {
+        leaderPosition: leader.position,
+        walkable,
+        dtMs,
+        ...(grid ? { collision: { grid, bodyRadiusPx: r } } : {}),
+      },
+      TRAIL,
+      MOVEMENT,
+    );
     for (const m of squad.members) {
       if (dead.has(m.id)) flag(`dead wizard ${String(m.id)} still in the squad`);
       if (!beforeSquad.has(m.id)) flag(`unknown wizard ${String(m.id)} appeared`);
     }
 
     // 2. Enemy brains and bodies.
+    const refresh = navClock?.step(dtMs) ?? false;
+    if (nav && refresh) nav.field.build(squad.members.map((m) => m.position));
+    const world7 = {
+      ...(grid ? { collision: grid } : {}),
+      ...(grid && nav ? { navigation: nav.field, refreshNavigation: refresh } : {}),
+    };
     const enemyStep = stepEnemies(enemies, {
       defs: ENEMIES,
       wizards: wizardViews(),
       bounds: arena,
       isAlive: (id) => world.isAlive(id),
       dtMs,
+      ...world7,
     });
     enemies = [...enemyStep.enemies];
     // Dead enemies stepped alongside must neither move nor act (D4).
@@ -341,6 +367,7 @@ export function runEncounter(options: EncounterOptions): EncounterResult {
       bounds: arena,
       isAlive: (id) => world.isAlive(id),
       dtMs,
+      ...world7,
     });
     corpseStep.enemies.forEach((e, i) => {
       const before = corpses[i];
@@ -369,6 +396,7 @@ export function runEncounter(options: EncounterOptions): EncounterResult {
         retargetMs: COMBAT.retargetMs,
         candidates,
         dtMs,
+        ...(grid ? { collision: grid } : {}),
       });
       w.auto = s.state;
       if (!s.fire) continue;
@@ -412,9 +440,10 @@ export function runEncounter(options: EncounterOptions): EncounterResult {
         p,
         dtMs,
         bodies.map((b) => ({ ...b, alive: world.isAlive(b.id) })),
+        grid,
       );
       if (s.hit === null) {
-        if (!s.expired) flying.push(s.projectile);
+        if (!s.expired && !s.blocked) flying.push(s.projectile);
         continue;
       }
       const result = hitUnit(s.hit, { ...p.source, sourceId: p.ownerId }, records);

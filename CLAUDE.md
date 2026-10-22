@@ -41,9 +41,9 @@ Only the owner edits a path. Everyone else reads it and messages the owner by na
 | plan.md, CLAUDE.md, .claude/**, docs/decisions/** | producer (human approval) |
 | src/core/types.ts, src/game/events.ts (contracts) | producer (human approval) |
 | src/core/** (except types.ts), tests/** | core-dev |
-| src/game/** (except events.ts), src/app/**, src/platform/**, src/main.ts | game-dev |
+| src/game/** (except events.ts), src/app/**, src/platform/**, src/main.ts, scripts/levels/** | game-dev |
 | src/data/** (except missions/ and animations.ts), docs/design/gdd/** | game-designer |
-| src/data/missions/**, public/assets/tilemaps/**, docs/design/levels/** | level-designer |
+| src/data/missions/**, public/assets/tilemaps/**, assets-src/levels/**, docs/design/levels/** | level-designer |
 | assets-src/style-guide.md, assets-src/concept/**, assets-src/raw/** | art-director |
 | assets-src/sprites/**, public/assets/atlases/**, src/data/animations.ts, scripts/assets/** | tech-artist |
 | docs/reviews/** | reviewer |

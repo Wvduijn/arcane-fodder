@@ -3,8 +3,6 @@ import type { EnemyId, MageClassId } from '@core/types';
 
 /** Procedural stand-in textures used until tech-artist publishes atlases. */
 export const PlaceholderTextures = {
-  Ground: 'placeholder-ground',
-  GroundBorder: 'placeholder-ground-border',
   FireBolt: 'placeholder-fire-bolt',
   Spark: 'placeholder-spark',
   Arrow: 'placeholder-arrow',
@@ -106,12 +104,6 @@ export const STORM_FLASH_CORE_RADIUS_PX = STORM_FLASH_RADIUS_PX * 0.5;
 /** Radius of the StrikeFlash texture, in texture px; its core is 40% of it (§5c: ≤ 40%). */
 export const STRIKE_FLASH_RADIUS_PX = 10;
 const STRIKE_FLASH_CORE_FRACTION = 0.4;
-
-/** Map tile size (tiled-conventions.md). Placeholder rendering only; M7 reads tilewidth from the map. */
-export const TILE_SIZE_PX = 16;
-
-const GROUND_COLORS = { fill: '#3f6b3a', grid: '#355c31' } as const;
-const GROUND_BORDER_COLORS = { fill: '#6b4a2f', grid: '#4f3622' } as const;
 
 type PixelRows = readonly string[];
 type Palette = Readonly<Record<string, string>>;
@@ -535,8 +527,6 @@ export function createPlaceholderTextures(textures: Phaser.Textures.TextureManag
     { upTo: 0.8, color: '#6fe7ff' },
     { upTo: 1, color: '#1a6a8a' },
   ]);
-  drawGridTile(textures, PlaceholderTextures.Ground, GROUND_COLORS);
-  drawGridTile(textures, PlaceholderTextures.GroundBorder, GROUND_BORDER_COLORS);
 }
 
 /** One colour band of a disc: pixels whose centre is within `upTo` × radius of the middle. */
@@ -602,26 +592,6 @@ function overlayPixels(base: PixelRows, top: PixelRows): PixelRows {
 
 function mirror(rows: PixelRows): PixelRows {
   return rows.map((row) => Array.from(row).reverse().join(''));
-}
-
-/** One tile with a 1 px line on its top and left edges, so a tiled area reads as a grid. */
-function drawGridTile(
-  textures: Phaser.Textures.TextureManager,
-  key: string,
-  colors: { readonly fill: string; readonly grid: string },
-): void {
-  if (textures.exists(key)) return;
-
-  const texture = textures.createCanvas(key, TILE_SIZE_PX, TILE_SIZE_PX);
-  if (!texture) throw new Error(`Could not create placeholder texture "${key}"`);
-
-  const { context } = texture;
-  context.fillStyle = colors.fill;
-  context.fillRect(0, 0, TILE_SIZE_PX, TILE_SIZE_PX);
-  context.fillStyle = colors.grid;
-  context.fillRect(0, 0, TILE_SIZE_PX, 1);
-  context.fillRect(0, 0, 1, TILE_SIZE_PX);
-  texture.refresh();
 }
 
 function drawPixelArt(

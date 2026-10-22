@@ -20,18 +20,32 @@
  *   (no lead, GDD §12). A started draw always finishes and shoots there, even if the target closed
  *   in or died meanwhile, so the tell never lies.
  *
+ * Aggro (M7, GDD §13, ADR 0007): a brain made with `aggro: 'always'` (the final surge) ignores
+ * `aggroRadiusPx`: its idle state picks the nearest living wizard at any range on its first step.
+ * `alertGoblin(brain)` switches a brain to `'always'` (trigger event `alert-group`).
+ *
+ * Archer post (M7, tiled-conventions §4.1): with `input.post`, an idle archer that stands farther
+ * than `holdRadiusPx` from its post walks back to it; within it, it stands still. Once aggroed it
+ * keeps range freely (the hold is only "until the squad is spotted").
+ *
+ * Sight (M7, CD Q3): with `input.lineOfSight`, an archer prefers the nearest wizard it can see when
+ * it (re)targets, and only starts a draw at a target it can see; a hidden target is approached
+ * (the enemy step then routes round the blocker, flowField.ts). Aggro ignores sight (goblins hear
+ * you). Grunts don't use it: their swing needs contact range anyway.
+ *
  * Targets: after aggro there is no leash. The brain re-picks the nearest living wizard (any range)
  * every `retargetMs`, or at once when its target is dead or gone, except while committed to a
  * wind-up or draw. With no living wizard left, it goes back to idle.
  *
  * API:
- * - `createGoblinBrain(def)`: an idle brain with a ready cooldown.
+ * - `createGoblinBrain(def, options)`: an idle brain with a ready cooldown; `options.aggro`
+ *   defaults to `'radius'`.
  * - `stepGoblin(brain, input)`: one frame → `{ brain, moveDirection, actions }`. A dead goblin
  *   (`input.self.alive` false) returns its brain unchanged, no move and no actions (D4).
  * - `GoblinAction`: `melee` (target id, `landed`) or `shoot` (from, aimAt). Ascending enemy id order
  *   is the caller's job (stepEnemies does it).
  */
-import type { EnemyDef, EntityId, Vec2 } from '@core/types';
+import type { EnemyDef, EntityId, Vec2, WaveAggro } from '@core/types';
 import { StateMachine, type MachineState } from '@core/ai/stateMachine';
 import {
   isReady,
@@ -47,6 +61,8 @@ export type GruntStateId = 'idle' | 'chase' | 'windup' | 'recover';
 export type ArcherStateId = 'idle' | 'keep-range' | 'draw';
 
 interface BrainBase {
+  /** `'always'`: no aggro radius (surge, alerted groups). */
+  readonly aggro: WaveAggro;
   readonly target: EntityId | null;
   readonly sinceRetargetMs: number;
   readonly cooldown: Cooldown;
@@ -78,6 +94,19 @@ export interface GoblinInput {
   };
   readonly wizards: readonly WizardView[];
   readonly dtMs: number;
+  /** Where an archer holds until aggro (archer-post). */
+  readonly post?: GoblinPost;
+  /** Can `from` see `to`? Absent: everything is visible (open ground). */
+  readonly lineOfSight?: (from: Vec2, to: Vec2) => boolean;
+}
+
+export interface GoblinPost {
+  readonly position: Vec2;
+  readonly holdRadiusPx: number;
+}
+
+export interface GoblinOptions {
+  readonly aggro?: WaveAggro;
 }
 
 export type GoblinAction =
@@ -98,6 +127,9 @@ interface Ctx {
   readonly def: EnemyDef;
   readonly self: Vec2;
   readonly wizards: readonly WizardView[];
+  readonly aggro: WaveAggro;
+  readonly post: GoblinPost | null;
+  readonly sees: (to: Vec2) => boolean;
   target: EntityId | null;
   sinceRetargetMs: number;
   cooldown: Cooldown;
@@ -106,8 +138,13 @@ interface Ctx {
   actions: GoblinAction[];
 }
 
-export function createGoblinBrain(def: EnemyDef): GoblinBrain {
-  const base = { target: null, sinceRetargetMs: 0, cooldown: READY };
+export function createGoblinBrain(def: EnemyDef, options: GoblinOptions = {}): GoblinBrain {
+  const base = {
+    aggro: options.aggro ?? 'radius',
+    target: null,
+    sinceRetargetMs: 0,
+    cooldown: READY,
+  };
   if (def.behaviour.kind === 'swarm') {
     return { ...base, kind: 'swarm', machine: { current: 'idle', timeInStateMs: 0 } };
   }
@@ -117,10 +154,15 @@ export function createGoblinBrain(def: EnemyDef): GoblinBrain {
 export function stepGoblin(brain: GoblinBrain, input: GoblinInput): GoblinStep {
   if (!input.self.alive) return { brain, moveDirection: ZERO, actions: [] };
   const dt = Math.max(0, input.dtMs);
+  const self = input.self.position;
+  const sight = input.lineOfSight;
   const ctx: Ctx = {
     def: input.def,
-    self: input.self.position,
+    self,
     wizards: input.wizards,
+    aggro: brain.aggro,
+    post: input.post ?? null,
+    sees: sight ? (to) => sight(self, to) : () => true,
     target: brain.target,
     sinceRetargetMs: brain.sinceRetargetMs + dt,
     cooldown: tickCooldown(brain.cooldown, dt),
@@ -140,7 +182,17 @@ export function stepGoblin(brain: GoblinBrain, input: GoblinInput): GoblinStep {
 }
 
 function common(ctx: Ctx): BrainBase {
-  return { target: ctx.target, sinceRetargetMs: ctx.sinceRetargetMs, cooldown: ctx.cooldown };
+  return {
+    aggro: ctx.aggro,
+    target: ctx.target,
+    sinceRetargetMs: ctx.sinceRetargetMs,
+    cooldown: ctx.cooldown,
+  };
+}
+
+/** The brain from now on aggroes at any range (trigger `alert-group`). */
+export function alertGoblin(brain: GoblinBrain): GoblinBrain {
+  return brain.aggro === 'always' ? brain : { ...brain, aggro: 'always' };
 }
 
 const candidates = (wizards: readonly WizardView[]): TargetCandidate[] =>
@@ -151,19 +203,36 @@ function targetOf(ctx: Ctx): WizardView | null {
   return ctx.wizards.find((w) => w.id === ctx.target && w.alive) ?? null;
 }
 
-/** Idle aggro: the nearest living wizard within the aggro radius. */
+/** Idle aggro: the nearest living wizard within the aggro radius (any range for `'always'`). */
 function aggro(ctx: Ctx): boolean {
-  const target = selectTarget(ctx.self, ctx.def.aggroRadiusPx, candidates(ctx.wizards));
+  const range = ctx.aggro === 'always' ? Number.POSITIVE_INFINITY : ctx.def.aggroRadiusPx;
+  const target = selectTarget(ctx.self, range, candidates(ctx.wizards));
   if (target === null) return false;
   ctx.target = target;
   ctx.sinceRetargetMs = 0;
   return true;
 }
 
-/** No leash: re-pick the nearest living wizard when due. Returns the target, or null if none. */
+/** Idle: an archer off its post walks back; otherwise stand. */
+function holdPost(ctx: Ctx): void {
+  const post = ctx.post;
+  if (post && distance(ctx.self, post.position) > post.holdRadiusPx) {
+    ctx.move = toward(ctx.self, post.position);
+  }
+}
+
+/**
+ * No leash: re-pick the nearest living wizard when due. Archers prefer one they can see. Returns
+ * the target, or null if none.
+ */
 function retarget(ctx: Ctx): WizardView | null {
   if (shouldRetarget(ctx.sinceRetargetMs, ctx.def.retargetMs, targetOf(ctx) !== null)) {
-    ctx.target = selectTarget(ctx.self, Number.POSITIVE_INFINITY, candidates(ctx.wizards));
+    const all = candidates(ctx.wizards);
+    const anyRange = Number.POSITIVE_INFINITY;
+    ctx.target =
+      (ctx.def.behaviour.kind === 'keep-range'
+        ? selectTarget(ctx.self, anyRange, all, (c) => ctx.sees(c.position))
+        : null) ?? selectTarget(ctx.self, anyRange, all);
     ctx.sinceRetargetMs = 0;
   }
   return targetOf(ctx);
@@ -228,12 +297,20 @@ const GRUNT = new StateMachine<GruntStateId, Ctx>({
 
 const ARCHER = new StateMachine<ArcherStateId, Ctx>({
   idle: {
-    update: (ctx) => (aggro(ctx) ? 'keep-range' : undefined),
+    update: (ctx) => {
+      if (aggro(ctx)) return 'keep-range';
+      holdPost(ctx);
+      return undefined;
+    },
   },
   'keep-range': {
     update: (ctx) => {
       const target = retarget(ctx);
       if (!target) return 'idle';
+      if (!ctx.sees(target.position)) {
+        ctx.move = toward(ctx.self, target.position);
+        return undefined;
+      }
       if (canStrike(ctx, target) && !isPushed(ctx, target)) return 'draw';
       ctx.move = keepRange(ctx, target);
       return undefined;

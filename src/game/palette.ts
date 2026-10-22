@@ -20,6 +20,8 @@ export const Palette = {
   bark: 0x5c3a24,
   soil: 0x3a2418,
   leather: 0x8f5a34,
+  /** Progress / "me": lit portal runes, extraction ring, objective count (readability §1). */
+  gold: 0xf2b42a,
 } as const;
 
 /** CSS form of a palette colour, for Text styles. */

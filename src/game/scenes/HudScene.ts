@@ -3,6 +3,8 @@ import type { SpellId } from '@core/types';
 import type { HudSlotView, HudView } from '../hud/HudModel';
 import { CHANNEL_DIM_ALPHA, DENIED_SHAKE, shakeOffsetPx, squareSweep } from '../hud/hudShapes';
 import { MeterWidget } from '../hud/MeterWidget';
+import type { MissionHudView } from '../hud/MissionHudModel';
+import { MissionHudWidget } from '../hud/MissionHudWidget';
 import { VolunteerWidget } from '../hud/VolunteerWidget';
 import { cssColor, Palette } from '../palette';
 import { PlaceholderTextures } from '../placeholders';
@@ -11,6 +13,8 @@ import { SceneKeys } from './keys';
 /** Passed through `scene.launch(SceneKeys.Hud, data)` by MissionScene. */
 export interface HudSceneData {
   readonly view: HudView;
+  /** "Huts n/2" and the portal arrow (M7). */
+  readonly mission: MissionHudView;
 }
 
 /**
@@ -102,8 +106,9 @@ interface SlotWidget {
 /**
  * Screen-fixed HUD (M5 Q3), its own scene above MissionScene: its own camera, never scrolled or
  * zoomed: the spell slots bottom-left, the Volunteer! icon right of them and the Convergence meter
- * bottom-centre (M6 Q4, {@link VolunteerWidget}, {@link MeterWidget}); M8's touch buttons later.
- * It reads only the {@link HudView} passed at launch; MissionScene stops it on its own SHUTDOWN and
+ * bottom-centre (M6 Q4, {@link VolunteerWidget}, {@link MeterWidget}), "Huts n/2" top-left and the
+ * portal arrow (M7, {@link MissionHudWidget}); M8's touch buttons later. It reads only the views
+ * passed at launch; MissionScene stops it on its own SHUTDOWN and
  * launches a fresh one every run, so nothing outlives a restart (Phaser clears the display list).
  *
  * Each slot per readability.md §5b: ready (cream border), cooldown (ash border, ink sweep over the
@@ -118,6 +123,8 @@ export class HudScene extends Phaser.Scene {
   private widgets: SlotWidget[] = [];
   private meter: MeterWidget | null = null;
   private volunteer: VolunteerWidget | null = null;
+  private missionView: MissionHudView | null = null;
+  private missionWidget: MissionHudWidget | null = null;
 
   constructor() {
     super(SceneKeys.Hud);
@@ -125,9 +132,11 @@ export class HudScene extends Phaser.Scene {
 
   init(data: HudSceneData): void {
     this.view = data.view;
+    this.missionView = data.mission;
     this.widgets = [];
     this.meter = null;
     this.volunteer = null;
+    this.missionWidget = null;
   }
 
   create(): void {
@@ -139,6 +148,7 @@ export class HudScene extends Phaser.Scene {
     );
     this.meter = new MeterWidget(this);
     this.volunteer = new VolunteerWidget(this);
+    this.missionWidget = new MissionHudWidget(this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.handleShutdown);
   }
 
@@ -153,6 +163,8 @@ export class HudScene extends Phaser.Scene {
     }
     this.meter?.render(view.meter, delta);
     this.volunteer?.render(view.volunteer, view.meter.channelling, delta);
+    const missionView = this.missionView;
+    if (missionView?.alive) this.missionWidget?.render(missionView, delta);
   }
 
   private createSlot(slot: 1 | 2, x: number, y: number): SlotWidget {
@@ -321,6 +333,8 @@ export class HudScene extends Phaser.Scene {
     this.widgets = [];
     this.meter = null;
     this.volunteer = null;
+    this.missionWidget = null;
     this.view = null;
+    this.missionView = null;
   };
 }

@@ -163,9 +163,9 @@ export const M01_GOBLIN_WOODS = {
     kind: 'portal',
     spawnId: 'portal',
     radiusPx: 48,
-    finalSurge: { waveId: 'surge-01', spawnPoints: 'all-remaining' },
+    finalSurge: { waveId: 'surge-01', spawnPoints: 'all-remaining', aggro: 'always' },
   },
-} as const satisfies MissionDef;
+} as const satisfies MissionDef; // M7 adds nameSeed and optional start; radiusPx is 112 (GDD Q8)
 ```
 
 Post-MVP portal variants (data-driven, per mission):
@@ -405,7 +405,7 @@ export const CONVERGENCES = [
 **Typed event bus.** Systems communicate through events instead of reaching into each other:
 
 ```ts
-// src/game/events.ts (the file is authoritative; this mirrors it as of M6)
+// src/game/events.ts (the file is authoritative; this mirrors it as of M7)
 export interface GameEvents {
   'unit:damaged': { id: EntityId; team: Team; amount: number; source: EntityId | null; element: DamageElement };
   'unit:died': { id: EntityId; team: Team; cause: DeathCause; deathVariant: DeathVariantId; gibbed: boolean };
@@ -427,11 +427,11 @@ export interface GameEvents {
   'volunteer:started': { id: EntityId; name: string; bark: string; at: Vec2 };
   'volunteer:denied': Record<string, never>;
   'volunteer:detonated': { id: EntityId; name: string; at: Vec2 };
-  // Planned (M7): shapes are settled when the milestone opens.
-  'mission:target-destroyed': { target: TargetId; progress: number; required: number };
+  'hut:destroyed': { id: EntityId; target: TargetId; at: Vec2 }; // never a unit:died
+  'mission:target-destroyed': { target: TargetId; progress: number; required: number; at: Vec2 };
   'portal:opened': { at: Vec2 };
   'portal:extracted': { saved: EntityId[]; leftBehind: EntityId[] };
-  'mission:ended': { result: 'victory' | 'defeat' };
+  'mission:ended': { result: MissionOutcome }; // 'victory' | 'defeat'
 }
 ```
 

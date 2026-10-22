@@ -1,0 +1,57 @@
+{
+  "objects": [
+    { "name": "sec-01", "type": "section", "x": 48, "y": 928, "w": 1488, "h": 560, "properties": { "index": 1, "label": "Hollow Road" } },
+    { "name": "sec-02", "type": "section", "x": 96, "y": 160, "w": 944, "h": 768, "properties": { "index": 2, "label": "Ridge Pass" } },
+    { "name": "sec-03", "type": "section", "x": 1040, "y": 128, "w": 880, "h": 720, "properties": { "index": 3, "label": "Fighting Retreat" } },
+    { "name": "safe-start", "type": "safe-start", "x": 112, "y": 1264, "w": 160, "h": 160 },
+    { "name": "trig-drum", "type": "trigger", "x": 752, "y": 512, "w": 96, "h": 48, "properties": { "event": "activate-group", "group": "grunts-ambush", "once": true } },
+
+    { "name": "squad-start", "type": "squad-start", "x": 192, "y": 1344, "properties": { "facing": "e" } },
+    { "name": "grunts-stray-01", "type": "enemy-spawn", "x": 460, "y": 1320, "properties": { "enemy": "goblin-grunt", "group": "grunts-stray", "count": 2, "radius": 24 } },
+    { "name": "grunts-meadow-01", "type": "enemy-spawn", "x": 900, "y": 1180, "properties": { "enemy": "goblin-grunt", "group": "grunts-meadow", "count": 5, "radius": 48 } },
+    { "name": "grunts-cut-01", "type": "enemy-spawn", "x": 1060, "y": 1170, "properties": { "enemy": "goblin-grunt", "group": "grunts-cut", "count": 3, "radius": 40 } },
+    { "name": "archer-bramble-01", "type": "archer-post", "x": 1010, "y": 880, "properties": { "group": "archers-bramble", "facing": "e", "holdRadius": 24 } },
+    { "name": "archer-ravine-01", "type": "archer-post", "x": 720, "y": 640, "properties": { "group": "archers-ravine", "facing": "e", "holdRadius": 24 } },
+    { "name": "archer-ravine-02", "type": "archer-post", "x": 880, "y": 760, "properties": { "group": "archers-ravine", "facing": "w", "holdRadius": 24 } },
+    { "name": "grunts-ravine-01", "type": "enemy-spawn", "x": 800, "y": 780, "properties": { "enemy": "goblin-grunt", "group": "grunts-ravine", "count": 3, "radius": 40 } },
+    { "name": "grunts-ambush-01", "type": "enemy-spawn", "x": 800, "y": 860, "properties": { "enemy": "goblin-grunt", "group": "grunts-ambush", "count": 6, "radius": 48, "trigger": "trig-drum" } },
+    { "name": "archer-bog-01", "type": "archer-post", "x": 450, "y": 250, "properties": { "group": "archers-bog", "facing": "w", "holdRadius": 24 } },
+    { "name": "archer-bog-02", "type": "archer-post", "x": 450, "y": 470, "properties": { "group": "archers-bog", "facing": "w", "holdRadius": 24 } },
+
+    { "name": "hut-spawn-01", "type": "hut-spawn", "x": 1424, "y": 1024, "properties": { "hut": "hut-01" } },
+    { "name": "hut-spawn-02", "type": "hut-spawn", "x": 400, "y": 352, "properties": { "hut": "hut-02" } },
+
+    { "name": "surge-rear-01", "type": "surge-spawn", "x": 200, "y": 360, "properties": { "wave": "surge-01", "enemy": "goblin-grunt", "count": 2, "radius": 40, "delayMs": 0 } },
+    { "name": "surge-mid-n-01", "type": "surge-spawn", "x": 1000, "y": 200, "properties": { "wave": "surge-01", "enemy": "goblin-grunt", "count": 3, "radius": 40, "delayMs": 2000 } },
+    { "name": "surge-mid-n-02", "type": "surge-spawn", "x": 1032, "y": 208, "properties": { "wave": "surge-01", "enemy": "goblin-archer", "count": 1, "radius": 16, "delayMs": 2000 } },
+    { "name": "surge-mid-s-01", "type": "surge-spawn", "x": 1088, "y": 456, "properties": { "wave": "surge-01", "enemy": "goblin-grunt", "count": 3, "radius": 40, "delayMs": 4000 } },
+    { "name": "surge-mid-s-02", "type": "surge-spawn", "x": 1132, "y": 492, "properties": { "wave": "surge-01", "enemy": "goblin-archer", "count": 1, "radius": 16, "delayMs": 4000 } },
+    { "name": "surge-bridge-w-01", "type": "surge-spawn", "x": 1480, "y": 300, "properties": { "wave": "surge-01", "enemy": "goblin-grunt", "count": 2, "radius": 32, "delayMs": 6000 } },
+    { "name": "surge-rune-01", "type": "surge-spawn", "x": 1800, "y": 600, "properties": { "wave": "surge-01", "enemy": "goblin-grunt", "count": 2, "radius": 32, "delayMs": 11000 } },
+    { "name": "surge-bridge-e-01", "type": "surge-spawn", "x": 1680, "y": 320, "properties": { "wave": "surge-01", "enemy": "goblin-archer", "count": 2, "radius": 24, "delayMs": 8000 } },
+
+    { "name": "portal", "type": "portal", "x": 1728, "y": 768, "properties": { "radiusPx": 112, "runeCount": 2 } },
+    { "name": "rune-slot-01", "type": "rune-slot", "x": 1704, "y": 720, "properties": { "index": 0, "portal": "portal" } },
+    { "name": "rune-slot-02", "type": "rune-slot", "x": 1752, "y": 720, "properties": { "index": 1, "portal": "portal" } },
+    { "name": "hut-01", "type": "goblin-hut", "x": 1424, "y": 976, "properties": { "target": "goblin-hut", "runeIndex": 0 } },
+    { "name": "hut-02", "type": "goblin-hut", "x": 336, "y": 352, "properties": { "target": "goblin-hut", "runeIndex": 1 } },
+
+    { "name": "keg-01", "type": "powder-keg", "x": 784, "y": 1148, "properties": { "cluster": "ford-pair", "chain": true } },
+    { "name": "keg-02", "type": "powder-keg", "x": 784, "y": 1188, "properties": { "cluster": "ford-pair", "chain": true } },
+    { "name": "keg-03", "type": "powder-keg", "x": 1040, "y": 1110, "properties": { "cluster": "cut-through", "chain": false } },
+    { "name": "keg-04", "type": "powder-keg", "x": 1344, "y": 920, "properties": { "cluster": "hut-a", "chain": true } },
+    { "name": "keg-05", "type": "powder-keg", "x": 1344, "y": 968, "properties": { "cluster": "hut-a", "chain": true } },
+    { "name": "keg-06", "type": "powder-keg", "x": 1270, "y": 1000, "properties": { "cluster": "hut-a-mouth", "chain": false } },
+    { "name": "keg-07", "type": "powder-keg", "x": 688, "y": 672, "properties": { "cluster": "ravine-west", "chain": false } },
+    { "name": "keg-08", "type": "powder-keg", "x": 912, "y": 792, "properties": { "cluster": "ravine-east", "chain": false } },
+    { "name": "keg-09", "type": "powder-keg", "x": 760, "y": 920, "properties": { "cluster": "ravine-mouth", "chain": false } },
+    { "name": "keg-10", "type": "powder-keg", "x": 420, "y": 300, "properties": { "cluster": "bog-north", "chain": false } },
+    { "name": "keg-11", "type": "powder-keg", "x": 420, "y": 420, "properties": { "cluster": "bog-south", "chain": false } },
+    { "name": "keg-12", "type": "powder-keg", "x": 260, "y": 360, "properties": { "cluster": "bog-hut", "chain": false } },
+    { "name": "keg-13", "type": "powder-keg", "x": 1100, "y": 520, "properties": { "cluster": "gallery-south", "chain": true } },
+    { "name": "keg-14", "type": "powder-keg", "x": 1130, "y": 532, "properties": { "cluster": "gallery-south", "chain": true } },
+    { "name": "keg-15", "type": "powder-keg", "x": 1470, "y": 408, "properties": { "cluster": "bridge-west", "chain": true } },
+    { "name": "keg-16", "type": "powder-keg", "x": 1494, "y": 432, "properties": { "cluster": "bridge-west", "chain": true } },
+    { "name": "keg-17", "type": "powder-keg", "x": 1840, "y": 420, "properties": { "cluster": "east-bank", "chain": false } }
+  ]
+}

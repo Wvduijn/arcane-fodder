@@ -37,6 +37,14 @@
  *    (walls blocking a sidestep, several members in the way, a succession mid-turn), the follower
  *    takes the least-overlapping position it can reach this step instead; see leastOverlapping.
  *
+ * Collision (M7, GDD §1): with `input.collision`, every wizard is a circle of `bodyRadiusPx` on the
+ * tile grid (collisionGrid.ts). `input.leaderPosition` is then where the leader *wants* to go: it
+ * walks there from where it stands and slides along blockers (`moveCircle`). Followers steer by
+ * the same rules as above and their resulting move slides the same way, so a follower is pushed
+ * out of solids and never cuts through a tree; the breadcrumbs only go where the leader walked,
+ * so the trail itself is always walkable (no path-finding, GDD §1). Knockback pushes slide too.
+ * Without `collision` nothing changes (open ground, the M3–M6 behaviour).
+ *
  * Bound: a step is at most (S × catchUpMultiplier + S × separationMaxSpeedFactor) × dt long.
  * Known limit: a follower pinned between the leader and a corner, or between the leader, a wall and
  * a follower ahead, can still overlap past 6 px; no single step gets it past the leader (that
@@ -48,6 +56,14 @@ import { clampToRect } from '@core/math/movement';
 import { add, distance, length, normalize, scale, sub } from '@core/math/vec2';
 import { advanceTrail, pointAtDistance } from '@core/squad/trail';
 import { slotDistancePx, type SquadMember, type SquadState } from '@core/squad/squad';
+import type { CollisionGrid } from '@core/world/collisionGrid';
+
+/** Tile collision for the squad step (M7). */
+export interface SquadCollision {
+  readonly grid: CollisionGrid;
+  /** MovementTuning.wizardBodyRadiusPx. */
+  readonly bodyRadiusPx: number;
+}
 
 export interface SquadStepInput {
   /** The leader's new position, already stepped from input and clamped by the caller. */
@@ -61,6 +77,8 @@ export interface SquadStepInput {
   readonly dtMs: number;
   /** The squad stands still: no input, no follow, knockback only (Convergence channel). */
   readonly held?: boolean;
+  /** Blockers and dynamic solids (M7). Absent: open ground. */
+  readonly collision?: SquadCollision;
 }
 
 const ZERO: Vec2 = { x: 0, y: 0 };
@@ -76,7 +94,8 @@ export function stepSquad(
   if (input.dtMs <= 0 || !leader) return state;
   const dt = input.dtMs / 1000;
   const leaderMove = knockedBack(leader, input) ?? {
-    position: input.held === true ? leader.position : input.leaderPosition,
+    position:
+      input.held === true ? leader.position : slide(leader.position, input.leaderPosition, input),
     knockbacks: leader.knockbacks,
   };
   const trail = advanceTrail(state.trail, leaderMove.position);
@@ -135,6 +154,7 @@ export function stepSquad(
         movement,
       );
     }
+    position = slide(member.position, position, input);
     moved.push({
       id: member.id,
       position,
@@ -152,10 +172,14 @@ function knockedBack(
 ): Pick<SquadMember, 'position' | 'knockbacks'> | null {
   if (member.knockbacks.length === 0) return null;
   const step = stepKnockbacks(member.knockbacks, input.dtMs);
-  return {
-    position: clampToRect(add(member.position, step.displacement), input.walkable, 0),
-    knockbacks: step.active,
-  };
+  const pushed = clampToRect(add(member.position, step.displacement), input.walkable, 0);
+  return { position: slide(member.position, pushed, input), knockbacks: step.active };
+}
+
+/** The move from `from` to `to`, sliding along solids when the step has collision. */
+function slide(from: Vec2, to: Vec2, input: SquadStepInput): Vec2 {
+  const c = input.collision;
+  return c ? c.grid.moveCircle(from, to, c.bodyRadiusPx) : to;
 }
 
 /** Speed at or below which a follower on a resting slot stops: the arrive speed at the stop radius. */

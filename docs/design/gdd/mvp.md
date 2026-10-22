@@ -894,6 +894,11 @@ Not enterable: walking onto it does nothing.
 | `surge.minSpawnDistancePx` | 160 | game-designer |
 | `extraction.radiusPx` (per mission) | **112** (7 tiles). **APPROVED** (Q8, gate). | level-designer |
 
+Data (M7): `PORTAL` (`openingMs`, `triggerRadiusPx`, `introPanMs` 3000) and `SURGE`
+(`minSpawnDistancePx`, `maxAlive` 12: surge enemies only; the §12 "≤ 12 on screen" peak counts every
+enemy, so leftover section goblins can exceed it — reviewer checks the live count at T18) live in `src/data/mission.ts`;
+`HUT` (§12) lives in `src/data/structures.ts` with `bodyRadiusPx` 32 (inscribed in the 64 px footprint).
+
 **Why 112 (Q8).** The leader triggers at ≤ 24 px (on the portal pad, which is now larger). A full
 trail stretches 78 px behind. The last follower ends up at ≤ 24 + 78 = 102 px when walking straight
 in. At 80 (the approved 32 px value), a squad walking in single file always loses its last wizard,
@@ -913,7 +918,8 @@ volunteers).
 
 **Results screen** (victory and defeat share it)
 - Header: Victory / Defeat.
-- Time: mission start to end, pause excluded, shown as mm:ss.
+- Time: from when the player gets control (after the intro pan, or at once if it's skipped) to
+  the end, pause excluded, shown as mm:ss (CD 2026-10-22).
 - Kills: enemy units only (huts are shown as "Huts 2/2").
 - Wizards saved: name and class.
 - Wizards lost: name, class and cause (`Fell in battle` / `Volunteered.` / `Left behind.`).
@@ -1033,4 +1039,5 @@ Questions marked **ASK** go to the human through the producer.
 | Q20 | A player who spends the meter at Hut B reaches the surge empty. | hut charge 35 / **portal-open charge 50** | Level-designer proposed `chargePerHutDestroyed` 10 → 35. **I recommend `chargeOnPortalOpen` = 50 instead.** A bigger hut reward also boosts Hut A and inflates section 1 (start 40 + 35 = 75 before the first fight is over), and it's wasted when the meter is already full. Charging at portal open targets exactly the climax. **Agreed with level-designer: `chargeOnPortalOpen` = 50, hut stays 10.** |
 | Q22 **DECIDED (CD): gibs are in** | How far does the gore go? | none / Kaboom only / **all big blasts** | The creative director overruled my "no gibs". **Rule (§12a):** trigger = a `canGib` source (Kaboom, Volunteer! blast, every Convergence strike) **and** a killing hit ≥ 1.5 × target maxHp. 3–5 pieces per goblin (weapon fragment always included), flight 300–450 ms within 48 px, lifetime 8 s plus a 1 s fade, at most 4 gibbed goblins per blast, a pool of 32 pieces with the oldest recycled first. **My concern stands as a constraint:** gibs must not read as projectiles or pickups, so they spin, arc, are matte and desaturated, settle fast and low, and have no pale shaft > 8 px. |
 | Q23 **APPROVED** | Gore toggle | — | A "Gore: on/off" setting, on by default. Off = collapse plus a neutral grey puff; no corpses, decals, gibs or skeleton flash (§12a). The store rating is still assessed on gore-on content (PEGI 12/16 likely) at M9. |
+| Q24 **ASK** (M7 gate B1) | The CD ruled the surge must reach the wizards, but the squad (110) outruns grunts (85) and archers (70), so the retreat is a walk (docs/reviews/M7-gate.md B1). How? | **A.** Surge-only speed: `SURGE.moveSpeedMul` 1.4 on `aggro: 'always'` spawns (grunt 119, archer 98), plus level-designer moves surge points ahead of the route. **B.** Raise every grunt to ≥ 110 and rewrite §12 "so you can kite". **C.** Placement only (more `surge-01` points on the Gallery/Old Bridge line at the 160 px minimum), no speed change. | **A.** Q19 keeps kiting as the feel of the sections, and B throws that away to fix one 20 s finale. C alone gives a wall to punch through, not a chase, and grunts left behind still fall off. With A, the sections still teach "kite the swarm", and the surge teaches the §13 lesson: you can't outrun this, so stay together and fight through to the ring. 1.4 closes ~9 px/s on a fleeing squad: a goblin spawned 160 px behind needs ~18 s, so placement ahead still does most of the work and the rear is a threat, not a death sentence. Needs a `SurgeTuning.moveSpeedMul` field (contract) and a core rule (surge units move at `moveSpeed × moveSpeedMul`). Art: a fast unit needs a cue (a frenzy tint or dust trail) so the speed reads as a surge rule, not a bug. *Verify:* reviewer's B1 retest: surge contact with the squad on the portal leg, peak on screen ≤ 12. |
 | Q21 | Area hits at 48×48: test against the target's centre or its body? | centre / **body (radius + bodyRadius)** | **Body.** A goblin visibly half inside the ring but unhurt reads as a bug at this sprite size. Rings are drawn at `radiusPx`, and the hit test adds the body radius. Small spells were retuned for it: Lightning 16 → 8, so it stays a single-target scalpel. |
